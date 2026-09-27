@@ -23,29 +23,28 @@ function wav16(samples, rate) {
 }
 
 self.onmessage = async ({ data }) => {
-  if (data.type === 'load') {
-    try {
-      tts = await KokoroTTS.from_pretrained(MODEL, {
-        dtype: data.dtype,
-        device: data.device,
-        progress_callback: p => self.postMessage({ type: 'progress', p }),
+  const { id } = data;
+  try {
+    if (data.type === 'load') {
+      tts ||= await KokoroTTS.from_pretrained(MODEL, {
+        dtype: 'fp16',
+        device: 'webgpu',
+        progress_callback: p => {
+          if (p.status === 'progress' && /\.onnx$/.test(p.file || '')) self.postMessage({ type: 'progress', id, percent: p.progress });
+        },
       });
-      self.postMessage({ type: 'ready' });
-    } catch (err) {
-      self.postMessage({ type: 'error', message: String(err?.message || err) });
-    }
-  } else if (data.type === 'generate') {
-    try {
+      self.postMessage({ type: 'ready', id });
+    } else if (data.type === 'generate') {
       const started = performance.now();
       const audio = await tts.generate(data.text, { voice: data.voice });
       self.postMessage({
-        type: 'audio', id: data.id,
+        type: 'audio', id,
         blob: wav16(audio.audio, audio.sampling_rate),
         ms: Math.round(performance.now() - started),
         seconds: audio.audio.length / audio.sampling_rate,
       });
-    } catch (err) {
-      self.postMessage({ type: 'audio', id: data.id, error: String(err?.message || err) });
     }
+  } catch (err) {
+    self.postMessage({ type: 'error', id, message: String(err?.message || err) });
   }
 };

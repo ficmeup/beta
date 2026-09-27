@@ -257,7 +257,8 @@
     work = await DB.getWork(id);
     if (!work) return;
     updateMediaSession();
-    if (isKokoro()) Kokoro.load().catch(err => setPlayerStatus(err.message));
+    const choice = downloadableChoice();
+    if (choice) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
     const pos = await DB.getPosition(id);
 
     els.chapterSelect.replaceChildren(...work.chapters.map((c, i) => new Option(c.title, i)));
@@ -368,8 +369,29 @@
     ['bm_george', 'George', 'British man'],
     ['bm_fable', 'Fable', 'British man'],
   ];
-  const isKokoro = () => settings.voiceURI.startsWith(KOKORO_PREFIX);
-  const kokoroVoice = () => settings.voiceURI.slice(KOKORO_PREFIX.length);
+  const PIPER_PREFIX = 'piper:';
+  const PIPER_VOICES = [
+    ['en_US-ljspeech-medium', 'Linda', 'American woman, audiobook narrator'],
+    ['en_US-hfc_female-medium', 'Hazel', 'American woman'],
+    ['en_US-amy-medium', 'Amy', 'American woman'],
+    ['en_US-kristin-medium', 'Kristin', 'American woman'],
+    ['en_US-lessac-medium', 'Lessac', 'American woman'],
+    ['en_US-hfc_male-medium', 'Hugo', 'American man'],
+    ['en_US-ryan-medium', 'Ryan', 'American man'],
+    ['en_US-joe-medium', 'Joe', 'American man'],
+    ['en_GB-cori-medium', 'Cori', 'British woman, audiobook narrator'],
+    ['en_GB-jenny_dioco-medium', 'Jenny', 'British woman'],
+    ['en_GB-alan-medium', 'Alan', 'British man'],
+    ['en_GB-northern_english_male-medium', 'Northern', 'British man'],
+  ];
+
+  // Returns { engine, voice } for a Kokoro/Piper choice, or null for a built-in voice.
+  function downloadableChoice(uri = settings.voiceURI) {
+    if (uri.startsWith(KOKORO_PREFIX)) return { engine: KokoroEngine, voice: uri.slice(KOKORO_PREFIX.length) };
+    if (uri.startsWith(PIPER_PREFIX)) return { engine: PiperEngine, voice: uri.slice(PIPER_PREFIX.length) };
+    return null;
+  }
+  const isDownloadable = () => !!downloadableChoice();
 
   const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Deranged|Hysterical|Pipe Organ)\b/;
 
@@ -410,14 +432,17 @@
     const rest = mine.filter(v => rank(v) === 0);
     const others = voices.filter(v => !v.lang.toLowerCase().startsWith(lang));
     els.voiceSelect.replaceChildren(
-      group('Kokoro: most natural (one-time download)',
+      group('Kokoro: most natural, needs a recent device (160 MB once)',
         KOKORO_VOICES.map(([id, name, desc]) => new Option(`${name} · ${desc}`, KOKORO_PREFIX + id))),
+      group('Piper: natural, works on most devices (60 MB per voice)',
+        PIPER_VOICES.map(([id, name, desc]) => new Option(`${name} · ${desc}`, PIPER_PREFIX + id))),
       ...(best.length ? [group('Best voices on this device', opts(best))] : []),
       ...(rest.length ? [group(best.length ? 'Other voices on this device' : 'Voices on this device', opts(rest))] : []),
       ...(others.length ? [group('Other languages', opts(others))] : []),
     );
-    const known = isKokoro()
-      ? KOKORO_VOICES.some(([id]) => id === kokoroVoice())
+    const choice = downloadableChoice();
+    const known = choice
+      ? [...KOKORO_VOICES, ...PIPER_VOICES].some(([id]) => id === choice.voice)
       : voices.some(v => v.voiceURI === settings.voiceURI);
     if (!known) settings.voiceURI = (mine[0] || voices[0])?.voiceURI || KOKORO_PREFIX + 'af_heart';
     els.voiceSelect.value = settings.voiceURI;
@@ -442,114 +467,106 @@
     els.debugLog.textContent = debugLines.join('\n');
   }
 
-  // ---------- Kokoro ----------
+  // ---------- Downloadable voices (Kokoro and Piper) ----------
+  // Each engine runs in its own worker and downloads its voice files once.
 
-  const Kokoro = (() => {
+  function makeEngine({ name, workerUrl, requirement, hint = '' }) {
+    const STALL_MS = 45000;      // no download progress for this long = give up
+    const GENERATE_MS = 60000;   // one sentence taking this long = the voice is stuck
     let worker = null;
-    let readyPromise = null;
-    let device = '';
     let nextId = 0;
-    let chain = Promise.resolve();   // one generation at a time
-    const pending = new Map();
-    // Kokoro needs the graphics chip (WebGPU) to keep up with playback. On the CPU it
-    // takes longer to make each sentence than to say it, so we don't offer that.
-    const DTYPE = 'fp16';          // ~160 MB, one-time download
-    const STALL_MS = 45000;        // no download progress for this long = give up
-    const GENERATE_MS = 60000;     // one sentence taking this long = the worker died
-
+    let chain = Promise.resolve();   // one request at a time
     let lastPercent = -1;
-    function onProgress(p) {
-      if (p.status !== 'progress' || !/\.onnx$/.test(p.file || '')) return;
-      const percent = Math.floor(p.progress);
-      if (percent === lastPercent) return;
-      lastPercent = percent;
-      setPlayerStatus(`Downloading Kokoro voice… ${percent}% (one time only)`);
-    }
+    let slowWarned = false;
+    const pending = new Map();
+    const loads = new Map();         // voice -> Promise
 
-    function tryLoad() {
-      worker?.terminate();
-      worker = new Worker('kokoro-worker.js?v=5', { type: 'module' });
-      return new Promise((resolve, reject) => {
-        let stallTimer;
-        const fail = err => { clearTimeout(stallTimer); reject(err); };
-        const resetStall = () => {
-          clearTimeout(stallTimer);
-          stallTimer = setTimeout(() => fail(new Error('the download stalled')), STALL_MS);
-        };
-        resetStall();
-        worker.onerror = e => fail(new Error(e.message || 'the voice worker failed to start'));
-        worker.onmessage = ({ data }) => {
-          if (data.type === 'progress') { resetStall(); onProgress(data.p); }
-          else if (data.type === 'error') fail(new Error(data.message));
-          else if (data.type === 'ready') {
-            clearTimeout(stallTimer);
-            worker.onmessage = onResult;
-            worker.onerror = () => reset(new Error('the voice stopped unexpectedly'));
-            resolve();
-          }
-        };
-        worker.postMessage({ type: 'load', device: 'webgpu', dtype: DTYPE });
-      });
-    }
-
-    function onResult({ data }) {
-      if (data.type !== 'audio') return;
-      const p = pending.get(data.id);
-      pending.delete(data.id);
-      if (data.error) { dbg(`generate failed: ${data.error}`); p?.reject(new Error(data.error)); }
-      else { dbg(`made ${data.seconds.toFixed(1)}s of speech in ${(data.ms / 1000).toFixed(1)}s`); p?.resolve(data.blob); }
-    }
-
-    // Throw away the worker so the next attempt starts fresh.
     function reset(err) {
       worker?.terminate();
       worker = null;
-      readyPromise = null;
-      device = '';
-      for (const p of pending.values()) p.reject(err);
+      for (const p of pending.values()) { p.done(); p.reject(err); }
       pending.clear();
+      loads.clear();
     }
 
-    function load() {
-      readyPromise ||= (async () => {
-        if (!navigator.gpu) {
-          readyPromise = null;
-          throw new Error('Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Pick a built-in voice for now.');
+    function onMessage({ data }) {
+      const p = pending.get(data.id);
+      if (!p) return;
+      if (data.type === 'progress') {
+        p.touch?.();
+        const percent = Math.floor(data.percent);
+        if (percent !== lastPercent) {
+          lastPercent = percent;
+          setPlayerStatus(`Downloading ${name} voice… ${percent}% (one time only)`);
         }
-        setPlayerStatus('Starting Kokoro voice…');
-        dbg(`starting Kokoro (gpu: ${!!navigator.gpu})`);
+        return;
+      }
+      pending.delete(data.id);
+      p.done();
+      if (data.type === 'error') p.reject(new Error(data.message));
+      else if (data.type === 'ready') p.resolve();
+      else if (data.type === 'audio') {
+        dbg(`${name}: made ${data.seconds.toFixed(1)}s of speech in ${(data.ms / 1000).toFixed(1)}s`);
+        if (!slowWarned && data.seconds > 1.5 && data.ms > data.seconds * 1000 * 1.1 && nextId > 3) {
+          slowWarned = true;
+          setPlayerStatus(`${name} is slower than speech on this device, so expect pauses.${hint}`, 10000);
+        }
+        p.resolve(data.blob);
+      }
+    }
+
+    function request(msg, timeoutMs, isDownload) {
+      if (!worker) {
+        worker = new Worker(workerUrl, { type: 'module' });
+        worker.onmessage = onMessage;
+        worker.onerror = e => reset(new Error(e.message || 'the voice worker crashed'));
+      }
+      const id = ++nextId;
+      return new Promise((resolve, reject) => {
+        let timer;
+        const arm = () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => reset(new Error(isDownload ? 'the download stalled' : 'the voice stopped responding')), timeoutMs);
+        };
+        arm();
+        pending.set(id, { resolve, reject, touch: isDownload ? arm : null, done: () => clearTimeout(timer) });
+        worker.postMessage({ ...msg, id });
+      });
+    }
+
+    function load(voice) {
+      if (loads.has(voice)) return loads.get(voice);
+      const promise = (async () => {
+        const problem = requirement?.();
+        if (problem) throw new Error(problem);
+        setPlayerStatus(`Starting ${name} voice…`);
+        dbg(`starting ${name} (${voice})`);
         let lastError;
         for (let attempt = 1; attempt <= 2; attempt++) {   // one retry covers a dropped download
           try {
             lastPercent = -1;
-            await tryLoad();
-            device = 'webgpu';
-            setPlayerStatus('Kokoro voice ready.', 2500);
-            dbg('Kokoro ready');
+            await request({ type: 'load', voice }, STALL_MS, true);
+            loads.set(voice, promise);
+            dbg(`${name} ready`);
+            setPlayerStatus(`${name} voice ready.`, 2500);
             return;
           } catch (err) {
             lastError = err;
-            console.warn(`Kokoro load attempt ${attempt} failed:`, err);
-            dbg(`load attempt ${attempt} failed: ${err.message}`);
+            dbg(`${name} load attempt ${attempt} failed: ${err.message}`);
           }
         }
-        reset(lastError);
-        throw new Error(`Kokoro couldn’t start (${lastError?.message || 'unknown error'}). Press play to try again, or pick a built-in voice.`);
+        throw new Error(`${name} couldn’t start (${lastError?.message || 'unknown error'}). Press play to try again, or pick another voice.${hint}`);
       })();
-      return readyPromise;
+      loads.set(voice, promise);
+      promise.catch(() => { if (loads.get(voice) === promise) loads.delete(voice); });
+      return promise;
     }
 
     function generate(text, voice) {
       const run = async () => {
-        await load();
-        const id = ++nextId;
-        return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reset(new Error('the voice stopped responding')), GENERATE_MS);
-          pending.set(id, {
-            resolve: v => { clearTimeout(timer); resolve(v); },
-            reject: e => { clearTimeout(timer); reject(e); },
-          });
-          worker.postMessage({ type: 'generate', id, text, voice });
+        await load(voice);
+        return request({ type: 'generate', text, voice }, GENERATE_MS, false).catch(err => {
+          throw new Error(`${name}: ${err.message}.${hint}`);
         });
       };
       const result = chain.then(run, run);
@@ -557,8 +574,17 @@
       return result;
     }
 
-    return { load, generate, get device() { return device; } };
-  })();
+    return { name, load, generate };
+  }
+
+  const KokoroEngine = makeEngine({
+    name: 'Kokoro',
+    workerUrl: 'kokoro-worker.js?v=6',
+    // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
+    requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
+    hint: ' Piper voices work on more devices.',
+  });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=6' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -604,15 +630,16 @@
   }
 
   function pumpGeneration() {
-    if (generating || !isKokoro() || !work) return;
-    const voice = kokoroVoice();
+    const choice = downloadableChoice();
+    if (generating || !choice || !work) return;
+    const voice = settings.voiceURI;
     for (let i = idx; i < Math.min(sentences.length, idx + LOOKAHEAD); i++) {
       if (!speakable(sentences[i].text)) continue;
       const key = `${voice}|${i}`;
       if (audioCache.has(key)) continue;
       generating = true;
       const entry = {};
-      entry.promise = Kokoro.generate(sentences[i].text, voice).then(blob => (entry.url = URL.createObjectURL(blob)));
+      entry.promise = choice.engine.generate(sentences[i].text, choice.voice).then(blob => (entry.url = URL.createObjectURL(blob)));
       audioCache.set(key, entry);
       entry.promise
         .catch(err => { audioCache.delete(key); entry.error = err; })
@@ -628,7 +655,7 @@
   }
 
   async function audioFor(i) {
-    const key = `${kokoroVoice()}|${i}`;
+    const key = `${settings.voiceURI}|${i}`;
     while (!audioCache.has(key)) {
       pumpGeneration();
       if (audioCache.has(key)) break;
@@ -638,8 +665,8 @@
     return audioCache.get(key).promise;
   }
 
-  async function speakKokoro(my) {
-    const key = `${kokoroVoice()}|${idx}`;
+  async function speakDownloaded(my) {
+    const key = `${settings.voiceURI}|${idx}`;
     const ready = !!audioCache.get(key)?.url;
     if (!ready && !/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
     let url;
@@ -721,7 +748,7 @@
       setTimeout(() => { if (my === token && playing) advance(); }, 400);
       return;
     }
-    if (isKokoro()) speakKokoro(my);
+    if (isDownloadable()) speakDownloaded(my);
     else speakDevice(my, s.text);
   }
 
@@ -733,11 +760,11 @@
 
   function play() {
     if (!sentences.length) return;
-    if (isKokoro()) unlockAudio();
+    if (isDownloadable()) unlockAudio();
     else if (!synth) return setPlayerStatus('This browser can’t use built-in voices. Pick a Kokoro voice.');
     playing = true;
     updatePlayButton();
-    keepScreenOn(!isKokoro());
+    keepScreenOn(!isDownloadable());
     speakCurrent();
   }
 
@@ -777,11 +804,12 @@
   async function preview() {
     const text = 'Hi! This is how I sound reading your stories.';
     if (playing) stop();
-    if (isKokoro()) {
+    const choice = downloadableChoice();
+    if (choice) {
       unlockAudio();
-      if (!Kokoro.device) setPlayerStatus('Preparing voice…');
+      if (!els.playerStatus.textContent) setPlayerStatus('Preparing voice…');
       try {
-        const blob = await Kokoro.generate(text, kokoroVoice());
+        const blob = await choice.engine.generate(text, choice.voice);
         if (playing) return;
         audio.onended = null;
         audio.src = URL.createObjectURL(blob);
@@ -811,7 +839,7 @@
     } catch { wakeLock = null; }
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && playing && !isKokoro()) keepScreenOn(true);
+    if (document.visibilityState === 'visible' && playing && !isDownloadable()) keepScreenOn(true);
   });
 
   // ---------- Wiring ----------
@@ -838,15 +866,16 @@
     audio.playbackRate = settings.rate;   // Kokoro audio changes speed immediately
     saveSettings();
   };
-  els.rate.onchange = () => { if (playing && !isKokoro()) speakCurrent(); };
+  els.rate.onchange = () => { if (playing && !isDownloadable()) speakCurrent(); };
   els.voiceSelect.onchange = () => {
     settings.voiceURI = els.voiceSelect.value;
     saveSettings();
     clearAudioCache();
-    if (isKokoro()) Kokoro.load().catch(err => setPlayerStatus(err.message));
+    const choice = downloadableChoice();
+    if (choice) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
     if (playing) {
-      keepScreenOn(!isKokoro());
-      if (isKokoro()) unlockAudio();
+      keepScreenOn(!choice);
+      if (choice) unlockAudio();
       speakCurrent();
     }
   };
