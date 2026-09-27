@@ -2,17 +2,19 @@
 // The voice (~60 MB) downloads once into the browser's cache. The pronunciation module
 // and the voice model are loaded once and reused for every sentence, which keeps the
 // phone cool. Text never leaves the device.
-import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/+esm';
+import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.mjs';
 import { createPiperPhonemize } from 'https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/dist/piper-DeOu3H9E.js';
 
 const VOICES_BASE = 'https://huggingface.co/diffusionstudio/piper-voices/resolve/main';
 const PHONEMIZE_BASE = 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize';
 const CACHE_NAME = 'piper-voices-v1';
 
-ort.env.wasm.wasmPaths = 'https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.18.0/';
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
 ort.env.wasm.numThreads = 1;
 
 let phonemizer = null;       // Promise of the pronunciation module
+let phonemizerUses = 0;
+const PHONEMIZER_MAX_USES = 40;   // it breaks after ~110 uses, so start a fresh one well before
 const printed = [];          // its output lines
 let voice = null;            // { id, session, config }
 
@@ -30,21 +32,28 @@ async function cachedDownload(url, onProgress) {
   if (!res.ok) throw new Error(`download failed (${res.status})`);
   const total = Number(res.headers.get('content-length')) || 0;
   const reader = res.body.getReader();
-  const chunks = [];
+  // Read straight into one buffer so the ~60 MB voice isn't held in memory several times over.
+  let bytes = new Uint8Array(total || 1 << 20);
   let loaded = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    if (loaded + value.length > bytes.length) {
+      const bigger = new Uint8Array(Math.max(bytes.length * 2, loaded + value.length));
+      bigger.set(bytes.subarray(0, loaded));
+      bytes = bigger;
+    }
+    bytes.set(value, loaded);
     loaded += value.length;
     if (total && onProgress) onProgress((loaded * 100) / total);
   }
-  const blob = new Blob(chunks);
-  await cache?.put(url, new Response(blob)).catch(() => {});   // if storage is full, it still works this time
-  return blob.arrayBuffer();
+  bytes = bytes.subarray(0, loaded);
+  await cache?.put(url, new Response(bytes)).catch(() => {});   // if storage is full, it still works this time
+  return bytes;
 }
 
 function getPhonemizer() {
+  if (phonemizerUses >= PHONEMIZER_MAX_USES) { phonemizer = null; phonemizerUses = 0; }
   phonemizer ||= createPiperPhonemize({
     print: line => printed.push(line),
     printErr: () => {},
@@ -63,8 +72,10 @@ async function loadVoice(id, onProgress) {
   if (voice?.id === id) return voice;
   const url = modelUrl(id);
   const config = JSON.parse(new TextDecoder().decode(await cachedDownload(`${url}.json`)));
-  const model = await cachedDownload(url, onProgress);
+  if (voice) { await voice.session.release().catch(() => {}); voice = null; }
+  let model = new Uint8Array(await cachedDownload(url, onProgress));
   const session = await ort.InferenceSession.create(model, { executionProviders: ['wasm'] });
+  model = null;
   await getPhonemizer();
   voice = { id, session, config };
   removeOldCopies();
@@ -93,6 +104,7 @@ function wav16(chunks, rate) {
 async function speak(text) {
   const { session, config } = voice;
   const mod = await getPhonemizer();
+  phonemizerUses++;
   printed.length = 0;
   mod.callMain(['-l', config.espeak.voice, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']);
   const rate = config.audio.sample_rate;

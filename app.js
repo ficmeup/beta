@@ -574,17 +574,20 @@
       return result;
     }
 
-    return { name, load, generate };
+    // Free the memory when switching to a different kind of voice.
+    function unload() { if (worker) { dbg(`${name} unloaded`); reset(new Error('voice changed')); } }
+
+    return { name, load, generate, unload };
   }
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=7',
+    workerUrl: 'kokoro-worker.js?v=8',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=7' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=8' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -609,7 +612,7 @@
   }
 
   // Sentences are generated ahead of the one being read, one at a time.
-  const LOOKAHEAD = 120;   // sentences, roughly 5–8 minutes of speech
+  const LOOKAHEAD = 40;   // sentences, roughly 2–3 minutes of speech
   const audioCache = new Map();   // `${voice}|${index}` -> { promise, url }
   let generating = false;
   let generationWaiters = [];
@@ -796,8 +799,9 @@
   }
 
   function updatePlayButton() {
-    els.playIcon.hidden = playing;
-    els.pauseIcon.hidden = !playing;
+    // SVG elements have no .hidden property in Safari, so set the attribute itself.
+    els.playIcon.toggleAttribute('hidden', playing);
+    els.pauseIcon.toggleAttribute('hidden', !playing);
     els.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
   }
@@ -891,6 +895,7 @@
     saveSettings();
     clearAudioCache();
     const choice = downloadableChoice();
+    for (const engine of [KokoroEngine, PiperEngine]) if (engine !== choice?.engine) engine.unload();
     if (choice) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
     if (playing) {
       keepScreenOn(!choice);
