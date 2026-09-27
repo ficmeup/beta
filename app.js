@@ -12,7 +12,7 @@
     prevBtn: $('#prevBtn'), playBtn: $('#playBtn'), nextBtn: $('#nextBtn'),
     playIcon: $('#playIcon'), pauseIcon: $('#pauseIcon'),
     rate: $('#rate'), rateValue: $('#rateValue'), voiceSelect: $('#voiceSelect'),
-    previewBtn: $('#previewBtn'), playerStatus: $('#playerStatus'),
+    previewBtn: $('#previewBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
   };
 
   // ---------- Storage: works and reading positions live in IndexedDB on this device ----------
@@ -433,6 +433,15 @@
     if (clearAfterMs) playerStatusTimer = setTimeout(() => { els.playerStatus.textContent = ''; }, clearAfterMs);
   }
 
+  // A short log of what the voice is doing; tap the status line under the player to see it.
+  const debugLines = [];
+  function dbg(msg) {
+    const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    debugLines.push(`${t} ${msg}`);
+    if (debugLines.length > 60) debugLines.shift();
+    els.debugLog.textContent = debugLines.join('\n');
+  }
+
   // ---------- Kokoro ----------
 
   const Kokoro = (() => {
@@ -459,7 +468,7 @@
 
     function tryLoad() {
       worker?.terminate();
-      worker = new Worker('kokoro-worker.js?v=4', { type: 'module' });
+      worker = new Worker('kokoro-worker.js?v=5', { type: 'module' });
       return new Promise((resolve, reject) => {
         let stallTimer;
         const fail = err => { clearTimeout(stallTimer); reject(err); };
@@ -487,7 +496,8 @@
       if (data.type !== 'audio') return;
       const p = pending.get(data.id);
       pending.delete(data.id);
-      if (data.error) p?.reject(new Error(data.error)); else p?.resolve(data.blob);
+      if (data.error) { dbg(`generate failed: ${data.error}`); p?.reject(new Error(data.error)); }
+      else { dbg(`made ${data.seconds.toFixed(1)}s of speech in ${(data.ms / 1000).toFixed(1)}s`); p?.resolve(data.blob); }
     }
 
     // Throw away the worker so the next attempt starts fresh.
@@ -507,6 +517,7 @@
           throw new Error('Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Pick a built-in voice for now.');
         }
         setPlayerStatus('Starting Kokoro voice…');
+        dbg(`starting Kokoro (gpu: ${!!navigator.gpu})`);
         let lastError;
         for (let attempt = 1; attempt <= 2; attempt++) {   // one retry covers a dropped download
           try {
@@ -514,10 +525,12 @@
             await tryLoad();
             device = 'webgpu';
             setPlayerStatus('Kokoro voice ready.', 2500);
+            dbg('Kokoro ready');
             return;
           } catch (err) {
             lastError = err;
             console.warn(`Kokoro load attempt ${attempt} failed:`, err);
+            dbg(`load attempt ${attempt} failed: ${err.message}`);
           }
         }
         reset(lastError);
@@ -563,9 +576,10 @@
     return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
   })();
   function unlockAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     audio.onended = null;
     audio.src = SILENCE;
-    audio.play().catch(() => {});
+    audio.play().then(() => dbg('audio unlocked'), err => { if (err.name !== 'AbortError') dbg(`unlock refused: ${err.name}`); });
   }
 
   // Sentences are generated ahead of the one being read, one at a time.
@@ -626,30 +640,46 @@
 
   async function speakKokoro(my) {
     const key = `${kokoroVoice()}|${idx}`;
-    if (!audioCache.get(key)?.url) setPlayerStatus(els.playerStatus.textContent || 'Preparing voice…');
+    const ready = !!audioCache.get(key)?.url;
+    if (!ready && !/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
     let url;
     try {
       url = await audioFor(idx);
     } catch (err) {
       if (my !== token) return;
       stop();
+      dbg(`could not make audio: ${err.message}`);
       return setPlayerStatus(err.message);
     }
     if (my !== token || !playing) return;
-    if (/Preparing voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
     audio.onended = () => { if (my === token && playing) advance(); };
     audio.src = url;
     audio.playbackRate = settings.rate;
+    // If nothing starts within a few seconds, say so instead of sitting silently.
+    const watchdog = setTimeout(() => {
+      if (my !== token || !playing || !audio.paused) return;
+      dbg(`audio did not start (readyState ${audio.readyState}, error ${audio.error?.code ?? 'none'})`);
+      setPlayerStatus('The audio didn’t start. Tap play again; if it keeps happening, tap here for details.');
+    }, 6000);
     try {
       await audio.play();
+      if (my === token && /Preparing voice|ready\./.test(els.playerStatus.textContent)) setPlayerStatus('');
     } catch (err) {
+      clearTimeout(watchdog);
       if (my !== token) return;
+      dbg(`play() refused: ${err.name} ${err.message}`);
       stop();
-      return setPlayerStatus('Tap play to continue.');
+      return setPlayerStatus(err.name === 'NotAllowedError'
+        ? 'Tap play to continue.'
+        : `This audio couldn’t play (${err.name}). Tap here for details.`);
     }
     pruneAudioCache();
     pumpGeneration();
   }
+
+  audio.addEventListener('playing', () => dbg(`playing sentence ${idx + 1}`));
+  audio.addEventListener('error', () => dbg(`audio error code ${audio.error?.code}: ${audio.error?.message || ''}`));
+  audio.addEventListener('stalled', () => dbg('audio stalled'));
 
   function speakDevice(my, text) {
     const u = new SpeechSynthesisUtterance(text);
@@ -791,6 +821,7 @@
   els.prevBtn.onclick = () => jump(idx - 1);
   els.nextBtn.onclick = () => jump(idx + 1);
   els.previewBtn.onclick = preview;
+  els.playerStatus.onclick = () => { els.debugLog.hidden = !els.debugLog.hidden; };
   els.chapterSelect.onchange = () => jump(chapterStarts[Number(els.chapterSelect.value)], true);
   els.text.onclick = e => {
     const span = e.target.closest('.s');

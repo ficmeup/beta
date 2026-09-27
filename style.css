@@ -176,3 +176,9 @@ details li { margin-bottom: 6px; }
 .player-status:empty { display: none; }
 details ul { padding-left: 1.2rem; }
 .version { text-align: center; margin-top: 32px; }
+.player-status { cursor: pointer; }
+.debug-log {
+  max-width: 40rem; max-height: 30vh; overflow: auto; margin: 8px auto 0;
+  padding: 8px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
+  font-size: 0.75rem; white-space: pre-wrap;
+}
