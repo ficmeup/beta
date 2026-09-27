@@ -16,7 +16,7 @@
     sleepSelect: $('#sleepSelect'), sleepLeft: $('#sleepLeft'),
     settingsToggle: $('#settingsToggle'), settingsPanel: $('#settings'),
     summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
-    libraryCount: $('#libraryCount'),
+    libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
     downloadPrompt: $('#downloadPrompt'), downloadText: $('#downloadText'),
     promptPreviewBtn: $('#promptPreviewBtn'), downloadBtn: $('#downloadBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
   };
@@ -197,18 +197,51 @@
 
   const AO3_ORIGIN = /^https:\/\/(www\.)?(archiveofourown\.(org|com|net)|ao3\.org)$/;
 
+  // The Listen bookmark. It runs in the reader's own AO3 tab and reads the page already
+  // on screen; it never contacts AO3. On iPhone and iPad it offers a second route,
+  // copying the story, because a Home Screen app has its own storage, separate from
+  // Safari's, and a link from Safari always opens in Safari.
+  const CLIP_PREFIX = 'FICMEUP1:';
   function bookmarkletCode() {
     const app = location.origin + location.pathname;
-    const src = `(()=>{const A=${JSON.stringify(app)},O=${JSON.stringify(location.origin)};`
+    const src = `(()=>{const A=${JSON.stringify(app)},O=${JSON.stringify(location.origin)},P=${JSON.stringify(CLIP_PREFIX)};`
       + `const r=document.querySelector('#workskin');`
-      + `if(!r){alert('Open a story on AO3 first, then tap Listen.');return}`
-      + `if(document.querySelector('a[href*="view_full_work=true"]')&&!confirm('Only this chapter is on screen. OK = listen to just this chapter. Cancel = go back, tap "Entire Work", then tap Listen again.'))return;`
-      + `const w=window.open(A+'#import','_blank');`
-      + `if(!w){alert('Please allow pop-ups for AO3, then try again.');return}`
+      + `if(!r){alert('Open a work on AO3 first, then tap Listen.');return}`
+      + `if(document.querySelector('a[href*="view_full_work=true"]')&&!confirm('Only this chapter is on screen. OK: listen to this chapter only. Cancel: tap Entire Work first, then Listen again.'))return;`
       + `const d={type:'fic-listener-import',html:r.outerHTML,url:location.href.split('#')[0]};`
-      + `const h=e=>{if(e.source===w&&e.data==='fic-listener-ready'){w.postMessage(d,O);removeEventListener('message',h)}};`
-      + `addEventListener('message',h)})()`;
+      + `const go=()=>{const w=window.open(A+'#import','_blank');if(!w){alert('Allow pop-ups for AO3, then tap Listen again.');return}`
+      + `const h=e=>{if(e.source===w&&e.data==='fic-listener-ready'){w.postMessage(d,O);removeEventListener('message',h)}};addEventListener('message',h)};`
+      + `const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Mac/.test(navigator.platform));`
+      + `if(!ios)return go();`
+      + `document.getElementById('ficmeup-box')?.remove();`
+      + `const b=document.createElement('div');b.id='ficmeup-box';`
+      + `b.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;background:#050505;color:#EFEFF1;padding:16px;display:grid;gap:10px;font:15px/1.4 -apple-system,system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.5)';`
+      + `const t=document.createElement('div');t.textContent='Fic Me Up';t.style.cssText='font:11px ui-monospace,Menlo,monospace;letter-spacing:.15em;text-transform:uppercase;color:#8C8C95';b.append(t);`
+      + `const mk=(label,fill)=>{const x=document.createElement('button');x.textContent=label;x.style.cssText='font:12px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;padding:13px;border:1px solid #EFEFF1;border-radius:0;'+(fill?'background:#EFEFF1;color:#050505':'background:#050505;color:#EFEFF1');b.append(x);return x};`
+      + `const b1=mk('Open in Safari',true),b2=mk('Copy for the Home Screen app',false),b3=mk('Cancel',false);`
+      + `b1.onclick=()=>{b.remove();go()};b3.onclick=()=>b.remove();`
+      + `b2.onclick=async()=>{try{await navigator.clipboard.writeText(P+JSON.stringify({html:d.html,url:d.url}));b2.textContent='Copied. In the app, tap Add from AO3';b2.disabled=true;setTimeout(()=>b.remove(),6000)}catch(e){alert('Copying didn’t work: '+e.message)}};`
+      + `document.body.append(b)})()`;
     return 'javascript:' + encodeURIComponent(src);
+  }
+
+  // The other half: the app reads what the bookmark copied.
+  async function addFromClipboard() {
+    let text;
+    try { text = await navigator.clipboard.readText(); }
+    catch { return setStatus('The clipboard couldn’t be read. Tap Paste when your phone asks, then try again.'); }
+    if (!text?.startsWith(CLIP_PREFIX)) {
+      return setStatus('No AO3 work on the clipboard. On AO3, tap Listen, then Copy for the Home Screen app.');
+    }
+    try {
+      const { html, url } = JSON.parse(text.slice(CLIP_PREFIX.length));
+      const work = await addWork(Parsers.fromDocument(new DOMParser().parseFromString(html, 'text/html')), url);
+      setStatus(`Added “${work.title}”.`);
+      await renderLibrary();
+      openWork(work.id);
+    } catch (err) {
+      setStatus(`That couldn’t be read: ${err.message}`);
+    }
   }
 
   function renderBookmarkletHelp() {
@@ -228,7 +261,7 @@
         <li>Share → <b>Add Bookmark</b>. Name it <b>Listen</b>, folder <b>Favorites</b>, <b>Save</b>.</li>
         <li>Bookmarks → <b>Favorites</b> → <b>Edit</b> → <b>Listen</b>. Replace the address with the code. <b>Done</b>.</li>
       </ol>
-      <p><b>On AO3.</b> Open a work, tap <b>Entire Work</b> if it has chapters, tap the address bar, then <b>Listen</b> in Favorites.</p>`;
+      <p><b>On AO3.</b> Open a work, tap <b>Entire Work</b> if it has chapters, tap the address bar, then <b>Listen</b> in Favorites. Choose <b>Open in Safari</b>, or, if you use Fic Me Up from your Home Screen, <b>Copy for the Home Screen app</b>; then open the app and tap <b>Add from AO3</b>.</p>`;
     body.querySelector('#bmLink').href = code;
     body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
     body.querySelector('#bmCopy').onclick = async () => {
@@ -672,12 +705,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=13',
+    workerUrl: 'kokoro-worker.js?v=14',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=13' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=14' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1030,6 +1063,7 @@
   els.prevBtn.onclick = () => jump(idx - 1);
   els.nextBtn.onclick = () => jump(idx + 1);
   els.previewBtn.onclick = preview;
+  els.clipAdd.onclick = addFromClipboard;
   els.promptPreviewBtn.onclick = preview;
   els.downloadBtn.onclick = async () => {
     const choice = downloadableChoice();
