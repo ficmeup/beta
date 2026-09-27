@@ -14,6 +14,9 @@
     rate: $('#rate'), rateValue: $('#rateValue'), voiceSelect: $('#voiceSelect'),
     previewBtn: $('#previewBtn'), back30Btn: $('#back30Btn'), fwd30Btn: $('#fwd30Btn'),
     sleepSelect: $('#sleepSelect'), sleepLeft: $('#sleepLeft'),
+    settingsToggle: $('#settingsToggle'), settingsPanel: $('#settings'),
+    summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
+    libraryCount: $('#libraryCount'),
     downloadPrompt: $('#downloadPrompt'), downloadText: $('#downloadText'),
     promptPreviewBtn: $('#promptPreviewBtn'), downloadBtn: $('#downloadBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
   };
@@ -69,6 +72,37 @@
   })();
   function saveSettings() {
     try { localStorage.setItem('fic-listener-settings', JSON.stringify(settings)); } catch {}
+  }
+
+  // ---------- Rooms (dark / paper) ----------
+  // The page follows the device until someone picks a room; then their pick wins.
+  const roomButtons = document.querySelectorAll('.roomtog button');
+  let roomChosen = window.__roomStored;
+  function applyRoom(room) {
+    document.documentElement.setAttribute('data-room', room);
+    roomButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.room === room)));
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', room === 'paper' ? '#D8D8D3' : '#050505');
+  }
+  applyRoom(document.documentElement.getAttribute('data-room') || 'dark');
+  roomButtons.forEach(b => b.addEventListener('click', () => {
+    roomChosen = b.dataset.room;
+    try { localStorage.setItem('fic-listener-room', roomChosen); } catch {}
+    applyRoom(roomChosen);
+  }));
+  try {
+    matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+      if (!roomChosen) applyRoom(e.matches ? 'paper' : 'dark');
+    });
+  } catch {}
+
+  // ---------- Colour field ----------
+  // Each story gets two hues, 140° apart, taken from its title. The field shows
+  // behind the story, drifts while it's being read, and holds still on pause.
+  function setFieldFor(title) {
+    let h = 0;
+    for (const ch of title || '') h = (h * 31 + ch.codePointAt(0)) % 360;
+    document.documentElement.style.setProperty('--h1', h);
+    document.documentElement.style.setProperty('--h2', (h + 140) % 360);
   }
 
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -127,6 +161,7 @@
       return li;
     }));
     els.emptyLibrary.hidden = works.length > 0;
+    els.libraryCount.textContent = works.length ? `${works.length} ${works.length === 1 ? 'story' : 'stories'}` : '';
   }
 
   els.fileInput.onchange = async () => {
@@ -179,23 +214,23 @@
   function renderBookmarkletHelp() {
     const body = els.bookmarkletBody;
     if (!/^https?:$/.test(location.protocol)) {
-      body.innerHTML = '<p class="hint">This works once the app is opened from a web address. Use <b>start.command</b> to open it.</p>';
+      body.innerHTML = '<p class="hint">The bookmark needs the app to be opened from a web address. Use <b>start.command</b>, or the published link.</p>';
       return;
     }
     const code = bookmarkletCode();
     body.innerHTML = `
-      <p class="hint">A bookmark that reads the AO3 page you already have open. It never contacts AO3 itself, so it’s the same as you reading the page.</p>
-      <p><b>On a computer:</b> drag this button onto your bookmarks bar.</p>
-      <p><a class="bookmarklet" id="bmLink">🎧 Listen</a></p>
-      <p><b>On iPhone or iPad (Safari), set it up once:</b></p>
+      <p class="hint">A bookmark that reads the AO3 page already open in your browser and sends the text here. It makes no requests to AO3 of its own.</p>
+      <p><b>Computer.</b> Drag this onto your bookmarks bar:</p>
+      <p><a class="bookmarklet" id="bmLink">Listen</a></p>
+      <p><b>iPhone or iPad, Safari.</b> Set it up once:</p>
       <ol>
         <li><button class="secondary-btn" id="bmCopy">Copy the Listen code</button></li>
-        <li>Tap the Share button (square with an arrow) → <b>Add Bookmark</b>. Name it <b>Listen</b>, choose the <b>Favorites</b> folder, tap <b>Save</b>.</li>
-        <li>Tap the Bookmarks button (open book) → <b>Favorites</b> → <b>Edit</b> → tap <b>Listen</b>. Delete the address underneath the name, paste the code, tap <b>Done</b>.</li>
+        <li>Share → <b>Add Bookmark</b>. Name it <b>Listen</b>, folder <b>Favorites</b>, <b>Save</b>.</li>
+        <li>Bookmarks → <b>Favorites</b> → <b>Edit</b> → <b>Listen</b>. Replace the address with the code. <b>Done</b>.</li>
       </ol>
-      <p><b>Then on AO3:</b> open a story and tap <b>Entire Work</b> if it has chapters. Tap the address bar at the top; your Favorites appear. Tap <b>Listen</b>. (Or type “Listen” into the address bar and tap the bookmark when it shows up.)</p>`;
+      <p><b>On AO3.</b> Open a work, tap <b>Entire Work</b> if it has chapters, tap the address bar, then <b>Listen</b> in Favorites.</p>`;
     body.querySelector('#bmLink').href = code;
-    body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this button to your bookmarks bar instead of clicking it.'); };
+    body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
     body.querySelector('#bmCopy').onclick = async () => {
       try { await navigator.clipboard.writeText(code); setStatus('Listen code copied.'); }
       catch { prompt('Copy this code:', code); }
@@ -260,6 +295,8 @@
     work = await DB.getWork(id);
     if (!work) return;
     work.chapters = Parsers.stripAo3Info(work.chapters);   // skip AO3's Rating…Stats block
+    setFieldFor(work.title);
+    document.body.classList.add('reading');
     updateMediaSession();
     const choice = downloadableChoice();
     if (choice && isDownloaded()) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
@@ -285,7 +322,8 @@
     stop();
     clearAudioCache();
     work = null;
-    els.appTitle.textContent = 'Fic Listener';
+    document.body.classList.remove('reading');
+    els.appTitle.textContent = 'Fic Me Up';
     els.backBtn.hidden = true;
     els.readerView.hidden = true;
     els.player.hidden = true;
@@ -433,7 +471,7 @@
     const show = !!choice && !isDownloaded();
     els.downloadPrompt.hidden = !show;
     if (show) {
-      els.downloadText.textContent = `${voiceDisplayName()} is a ${choice.engine.name} voice. It needs a one-time download of about ${DOWNLOAD_MB[choice.engine.name]} MB. Listen to a preview first?`;
+      els.downloadText.textContent = `${voiceDisplayName()} is a ${choice.engine.name} voice: a ${DOWNLOAD_MB[choice.engine.name]} MB download, once. Preview it first, or download it now.`;
       els.downloadBtn.textContent = `Download (${DOWNLOAD_MB[choice.engine.name]} MB)`;
       els.downloadBtn.disabled = false;
     }
@@ -497,6 +535,7 @@
       : voices.some(v => v.voiceURI === settings.voiceURI);
     if (!known) settings.voiceURI = (mine[0] || voices[0])?.voiceURI || KOKORO_PREFIX + 'af_heart';
     els.voiceSelect.value = settings.voiceURI;
+    updateSummary();
   }
 
   const currentVoice = () => voices.find(v => v.voiceURI === settings.voiceURI) || null;
@@ -633,12 +672,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=10',
+    workerUrl: 'kokoro-worker.js?v=12',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=10' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=12' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -836,6 +875,7 @@
     } else {
       els.sleepLeft.textContent = sleep.mode === 'chapter' ? '· end of chapter' : '';
     }
+    updateSummary();
   }
   setInterval(updateSleepLabel, 15000);
 
@@ -887,7 +927,7 @@
     tip.href = 'https://ko-fi.com/thisandthatspace';
     tip.target = '_blank';
     tip.rel = 'noopener';
-    tip.textContent = 'Enjoying Fic Listener? ☕ Support it on Ko-fi';
+    tip.textContent = 'Fic Me Up is free. Support it on Ko-fi';
     tip.addEventListener('click', (e) => e.stopPropagation());   // don't toggle the debug log
     els.playerStatus.append(tip);
   }
@@ -904,7 +944,7 @@
       return setPlayerStatus('Download this voice to start listening, or pick another one.');
     }
     if (isDownloadable()) unlockAudio();
-    else if (!synth) return setPlayerStatus('This browser can’t use built-in voices. Pick a Kokoro voice.');
+    else if (!synth) return setPlayerStatus('This browser can’t use built-in voices. Pick a Piper voice.');
     playing = true;
     updatePlayButton();
     keepScreenOn(!isDownloadable());
@@ -924,13 +964,14 @@
     els.playIcon.toggleAttribute('hidden', playing);
     els.pauseIcon.toggleAttribute('hidden', !playing);
     els.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    document.body.classList.toggle('playing', playing);
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
   }
 
   function updateMediaSession() {
     if (!('mediaSession' in navigator) || !work) return;
     try {
-      navigator.mediaSession.metadata = new MediaMetadata({ title: work.title, artist: work.author || 'Fic Listener' });
+      navigator.mediaSession.metadata = new MediaMetadata({ title: work.title, artist: work.author || 'Fic Me Up' });
     } catch {}
   }
   if ('mediaSession' in navigator) {
@@ -948,7 +989,7 @@
   }
 
   async function preview() {
-    const text = 'Hi! This is how I sound reading your stories.';
+    const text = 'This is this voice, at the speed you have set.';
     if (playing) stop();
     const choice = downloadableChoice();
     if (choice) {
@@ -1018,12 +1059,34 @@
     if (playing) speakCurrent(); else play();
   };
 
+  // ---------- The one-line settings summary in the player ----------
+  function updateSummary() {
+    els.summaryRate.textContent = `${Number(settings.rate).toFixed(1)}×`;
+    const opt = els.voiceSelect.selectedOptions?.[0];
+    els.summaryVoice.textContent = opt ? opt.textContent.split(' · ')[0] : 'Voice';
+    els.summarySleep.textContent = sleep.mode === 'off' ? 'Sleep off'
+      : sleep.mode === 'chapter' ? 'Sleep: end of chapter'
+      : `Sleep ${Math.max(0, Math.ceil((sleep.endsAt - Date.now()) / 60000))} min`;
+  }
+  els.settingsToggle.onclick = () => {
+    const open = els.settingsPanel.hidden;
+    els.settingsPanel.hidden = !open;
+    els.settingsToggle.setAttribute('aria-expanded', String(open));
+  };
+  // Keep the story clear of the player, whatever height it currently is.
+  try {
+    new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--player-h', `${els.player.offsetHeight}px`);
+    }).observe(els.player);
+  } catch {}
+
   function setRate(rate) {
     settings.rate = Number(rate);
     els.rate.value = settings.rate;
     els.rateValue.textContent = `${settings.rate.toFixed(1)}×`;
     audio.playbackRate = settings.rate;   // downloaded voices change speed immediately
     saveSettings();
+    updateSummary();
   }
   setRate(settings.rate);
   els.rate.oninput = () => { setRate(els.rate.value); savePosition(); };
@@ -1031,6 +1094,7 @@
   els.voiceSelect.onchange = () => {
     settings.voiceURI = els.voiceSelect.value;
     saveSettings();
+    updateSummary();
     clearAudioCache();
     const choice = downloadableChoice();
     for (const engine of [KokoroEngine, PiperEngine]) if (engine !== choice?.engine) engine.unload();

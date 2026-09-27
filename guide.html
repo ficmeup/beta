@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#050505">
+<meta name="description" content="How to use Fic Me Up: AO3 works read aloud on your own device, free.">
+<title>Fic Me Up · Guide</title>
+<script>
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('fic-listener-room'); } catch (e) {}
+    var room = stored || (matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'dark');
+    document.documentElement.setAttribute('data-room', room);
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=12">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="left">
+    <a class="text-btn" href="./" style="text-decoration:none">← App</a>
+    <span class="brand">Guide</span>
+  </div>
+  <nav>
+    <div class="roomtog" role="group" aria-label="Room">
+      <button type="button" data-room="dark">Dark</button>
+      <button type="button" data-room="paper">Paper</button>
+    </div>
+  </nav>
+</header>
+
+<main class="page guide">
+  <section class="open">
+    <h2>Fic Me Up reads AO3 works aloud, in your browser, on your own device.</h2>
+    <p>This page covers opening it, adding a story, choosing a voice and what it can’t do. Reading it takes about four minutes.</p>
+    <div class="cta"><a class="primary-btn" href="./">Open Fic Me Up</a></div>
+  </section>
+
+  <dl class="facts">
+    <dt>Cost</dt><dd>Free. No account, no sign-up.</dd>
+    <dt>Your library</dt><dd>Stays on the device you add it on. Nothing is uploaded.</dd>
+    <dt>AO3</dt><dd>The app makes no requests to AO3. You download the work, or it reads the page you already have open.</dd>
+    <dt>Works on</dt><dd>iPhone, iPad, Android and computers, in the browser.</dd>
+  </dl>
+
+  <section>
+    <div class="sechead"><h3>01 · Open it</h3></div>
+    <p>Open the link you were sent. Then add it to your Home Screen. It opens like an app, and the browser keeps your downloaded voices instead of clearing them after a few weeks.</p>
+    <ul>
+      <li><b>iPhone and iPad, Safari.</b> Share → <b>Add to Home Screen</b>.</li>
+      <li><b>Android, Chrome.</b> Menu (⋮) → <b>Add to Home screen</b>.</li>
+      <li><b>Computer.</b> A bookmark is enough.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>02 · Add a story</h3></div>
+    <p><b>From a download.</b> On AO3, open the work and tap <b>Download</b> → <b>EPUB</b>. In Fic Me Up, tap <b>Open a file</b> and choose it. HTML and PDF downloads work too; MOBI and AZW3 don’t.</p>
+    <p><b>With the Listen bookmark.</b> A bookmark that sends the AO3 page you’re reading straight into the app. Set it up once, from <b>The Listen bookmark for AO3</b> on the app’s main page. After that: open a work on AO3, tap <b>Entire Work</b> if it has chapters, then tap <b>Listen</b> in your bookmarks.</p>
+    <p>The tags block at the top of a work (Rating through Stats) is skipped. Chapter titles are read out as they come up.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>03 · Choose a voice</h3></div>
+    <p>Tap the line under the play button to open speed, voice and sleep timer. Voices that need a download have a <b>Preview</b> first; nothing downloads until you tap <b>Download</b>.</p>
+    <dl class="facts">
+      <dt>Piper</dt><dd>12 voices. 60 MB each, downloaded once. Phones and computers. Keeps reading with the screen locked. Linda and Cori are trained on audiobook narration.</dd>
+      <dt>Kokoro</dt><dd>12 voices. 310 MB, downloaded once. Computers only; too heavy for a phone browser.</dd>
+      <dt>Built-in</dt><dd>No download. Stops when the screen locks.</dd>
+    </dl>
+    <p>Use Wi-Fi for the first download.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>04 · Listening</h3></div>
+    <ul>
+      <li>Play once. It reads to the end of the work, chapter to chapter.</li>
+      <li>Tap any sentence to start from there. ⟲30 and 30⟳ skip 30 seconds; the arrows move one sentence.</li>
+      <li><b>Sleep timer:</b> 15, 30, 45 or 60 minutes, or the end of the chapter. It stops between sentences, never mid-way.</li>
+      <li>Speed runs from 0.5× to 2×. Each story keeps its own.</li>
+      <li>Your place is saved. Open the story again and it picks up at the same sentence.</li>
+      <li>With a Piper voice, play, pause and skip also work from the lock screen.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>05 · What it can’t do</h3></div>
+    <ul>
+      <li>Safari lets websites use a basic set of built-in voices only. Premium, Enhanced and Siri voices you’ve downloaded in Settings don’t appear.</li>
+      <li>Kokoro doesn’t run on iPhone or iPad. The full model runs out of memory; the smaller one takes 2.5 seconds to make each second of speech.</li>
+      <li>Built-in voices stop when the screen locks. Piper voices don’t.</li>
+      <li>A story added on your phone isn’t on your computer. There is no sync, because nothing leaves the device.</li>
+      <li>Fic Me Up isn’t made by or connected to AO3 or the Organization for Transformative Works.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>06 · The writers</h3></div>
+    <p>The writer gets nothing from this app: no hits, no kudos, no comments. If you listen to something here, go back to AO3 and leave kudos or a comment.</p>
+    <p>The audio is for your own listening. Don’t record it or share it; that would be an unauthorised podfic. Some writers say in their profile or notes that they don’t want their work read by text-to-speech. Respect that.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>07 · Problems</h3></div>
+    <p>If a voice stops or won’t start, tap the status line under the player. A log opens; send a screenshot of it with a line on what you were doing to <a href="https://github.com/ficmeup/ficmeup.github.io/issues" target="_blank" rel="noopener">github.com/ficmeup/ficmeup.github.io/issues</a>, or to whoever shared this link with you.</p>
+  </section>
+
+  <footer class="foot mono">
+    <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
+    <span><a href="./">Open Fic Me Up</a></span>
+  </footer>
+</main>
+
+<script>
+  (function () {
+    var buttons = document.querySelectorAll('.roomtog button');
+    function apply(room) {
+      document.documentElement.setAttribute('data-room', room);
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.room === room)); });
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', room === 'paper' ? '#D8D8D3' : '#050505');
+    }
+    apply(document.documentElement.getAttribute('data-room'));
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        try { localStorage.setItem('fic-listener-room', b.dataset.room); } catch (e) {}
+        apply(b.dataset.room);
+      });
+    });
+  })();
+</script>
+</body>
+</html>

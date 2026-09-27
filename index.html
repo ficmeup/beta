@@ -3,60 +3,96 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
-<title>Fic Listener</title>
-<link rel="stylesheet" href="style.css?v=11">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#050505">
+<title>Fic Me Up</title>
+<script>
+  // Pick the room before first paint, so there's no flash of the wrong one.
+  // The device's setting wins until someone chooses; then their choice wins.
+  (function () {
+    var stored = null;
+    try { stored = localStorage.getItem('fic-listener-room'); } catch (e) {}
+    var room = stored || (matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'dark');
+    document.documentElement.setAttribute('data-room', room);
+    window.__roomStored = stored;
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
+<link rel="stylesheet" href="style.css?v=12">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=11" defer></script>
-<script src="app.js?v=11" defer></script>
+<script src="parsers.js?v=12" defer></script>
+<script src="app.js?v=12" defer></script>
 </head>
 <body>
+<div id="field" aria-hidden="true"></div>
 
 <header class="topbar">
-  <button id="backBtn" class="text-btn" hidden>‹ Library</button>
-  <h1 id="appTitle">Fic Listener</h1>
+  <div class="left">
+    <button id="backBtn" class="text-btn" hidden>← Library</button>
+    <h1 id="appTitle" class="brand">Fic Me Up</h1>
+  </div>
+  <nav>
+    <a href="guide.html">Guide</a>
+    <div class="roomtog" role="group" aria-label="Room">
+      <button type="button" data-room="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-room="paper" aria-pressed="false">Paper</button>
+    </div>
+  </nav>
 </header>
 
 <main id="libraryView" class="page">
-  <section class="card">
-    <h2>Add a story</h2>
-    <label class="primary-btn file-btn">
-      Open a downloaded file
-      <input type="file" id="fileInput" multiple
-             accept=".epub,.html,.htm,.pdf,.txt,application/epub+zip,text/html,application/pdf,text/plain">
-    </label>
-    <p class="hint">On AO3, tap <b>Download</b> on any work and pick <b>EPUB</b> (best), <b>HTML</b> or <b>PDF</b>. Then open that file here.</p>
+  <section class="open">
+    <h2>Stories from AO3, read aloud on your own device.</h2>
+    <p>Open a downloaded work, or send one straight from AO3 with the Listen bookmark. Nothing is uploaded; your library stays on this device.</p>
+  </section>
+
+  <section>
+    <div class="sechead"><h3>Add a story</h3><span class="mono">EPUB · HTML · PDF · TXT</span></div>
+    <div class="add-row">
+      <label class="primary-btn file-btn">
+        Open a file
+        <input type="file" id="fileInput" multiple
+               accept=".epub,.html,.htm,.pdf,.txt,application/epub+zip,text/html,application/pdf,text/plain">
+      </label>
+    </div>
+    <p class="hint">On AO3, tap <b>Download</b> on a work and choose <b>EPUB</b>. HTML and PDF work too.</p>
 
     <details>
-      <summary>Paste text instead</summary>
+      <summary>Paste text</summary>
       <input id="pasteTitle" type="text" placeholder="Title">
-      <textarea id="pasteText" rows="8" placeholder="Paste the story here. Lines starting with “Chapter …” become chapters."></textarea>
+      <textarea id="pasteText" rows="8" placeholder="Paste the story. Lines that start with “Chapter” become chapters."></textarea>
       <button id="pasteAdd" class="primary-btn">Add to library</button>
     </details>
 
     <details id="bookmarkletBox">
-      <summary>Add a “Listen” button for AO3</summary>
+      <summary>The Listen bookmark for AO3</summary>
       <div id="bookmarkletBody"></div>
     </details>
 
     <details>
       <summary>Voices</summary>
-      <p><b>Piper voices</b> sound natural, work on phones and computers, and keep playing with the screen locked. Each voice downloads about 60 MB the first time you pick it. Linda and Cori are trained on audiobook narration.</p>
-      <p><b>Kokoro voices</b> (computers only) are the most natural. They download about 310 MB once and need a recent browser.</p>
-      <p><b>Built-in voices</b> need no download, but stop when the screen locks.</p>
-      <p class="hint">Safari only lets websites use a basic set of built-in voices. Voices you download in your device’s Accessibility settings (Premium, Enhanced, Siri) don’t appear here; that’s Apple’s rule for websites.</p>
-      <p class="hint">Adding this app to your Home Screen keeps downloaded voices from being cleared.</p>
+      <p><b>Piper</b> · phones and computers · 60 MB per voice, downloaded once. Keeps reading with the screen locked. Linda and Cori are trained on audiobook narration.</p>
+      <p><b>Kokoro</b> · computers only · 310 MB, downloaded once. The most natural of the three.</p>
+      <p><b>Built-in</b> · no download. Stops when the screen locks.</p>
+      <p class="hint">Safari gives websites a basic set of built-in voices only. Voices downloaded in Accessibility settings (Premium, Enhanced, Siri) don’t appear here.</p>
     </details>
 
     <p id="status" role="status"></p>
   </section>
 
   <section>
-    <h2>Your library</h2>
+    <div class="sechead"><h3>Library</h3><span class="mono" id="libraryCount"></span></div>
     <ul id="library" class="library"></ul>
-    <p id="emptyLibrary" class="hint">Nothing here yet. Add a story above.</p>
+    <p id="emptyLibrary" class="hint">No stories yet. Open a file from AO3 above.</p>
   </section>
-  <p class="hint version">Fic Listener is free. If it helps you, you can <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">☕ support it on Ko-fi</a>.<br>Version 11</p>
+
+  <footer class="foot mono">
+    <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
+    <span>Version 12 · <a href="guide.html">Guide</a></span>
+  </footer>
 </main>
 
 <main id="readerView" class="page reader" hidden>
@@ -85,7 +121,13 @@
       <svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16.5" text-anchor="middle">30</text></svg>
     </button>
   </div>
-  <div class="settings">
+
+  <!-- One line of state; tap it to change speed, voice or sleep timer. -->
+  <button type="button" id="settingsToggle" class="settings-toggle" aria-expanded="false" aria-controls="settings">
+    <span id="summaryRate">1.0×</span> · <span id="summaryVoice">Voice</span> · <span id="summarySleep">Sleep off</span>
+  </button>
+
+  <div id="settings" class="settings" hidden>
     <label class="rate">
       <span>Speed <b id="rateValue">1.0×</b></span>
       <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
@@ -101,7 +143,7 @@
         <option value="15">15 minutes</option>
         <option value="30">30 minutes</option>
         <option value="45">45 minutes</option>
-        <option value="60">1 hour</option>
+        <option value="60">60 minutes</option>
         <option value="chapter">End of chapter</option>
       </select>
     </label>
@@ -109,7 +151,7 @@
   <div id="downloadPrompt" class="download-prompt" hidden>
     <p id="downloadText"></p>
     <div>
-      <button type="button" id="promptPreviewBtn" class="secondary-btn">▶ Preview</button>
+      <button type="button" id="promptPreviewBtn" class="secondary-btn">Preview</button>
       <button type="button" id="downloadBtn" class="primary-btn">Download</button>
     </div>
   </div>
