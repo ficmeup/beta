@@ -235,6 +235,9 @@ const Parsers = (() => {
     if (/\.(mobi|azw3?)$/.test(name)) {
       throw new Error('Kindle files (MOBI/AZW3) aren’t supported. Download the EPUB version from AO3 instead; it’s the same story.');
     }
+    if (file.type && !file.type.startsWith('text/') && !/\.(txt|text|md)$/.test(name)) {
+      throw new Error('This isn’t a file Fic Me Up can read. Use the EPUB, HTML or PDF download from AO3.');
+    }
     return fromText(await file.text(), bare);
   }
 

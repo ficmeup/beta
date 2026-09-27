@@ -672,12 +672,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=12',
+    workerUrl: 'kokoro-worker.js?v=13',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=12' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=13' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1117,6 +1117,10 @@
     else if (e.key === 'ArrowRight') jump(idx + 1);
     else if (e.key === 'ArrowLeft') jump(idx - 1);
   });
+
+  // iOS can grey out EPUB files when a page restricts file types, so accept any
+  // file there; unsupported ones get a clear message from the parser.
+  if (isAppleMobile) els.fileInput.removeAttribute('accept');
 
   loadVoices();
   findCachedPiperVoices().then(updateDownloadPrompt);
