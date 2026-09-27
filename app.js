@@ -442,8 +442,11 @@
     let nextId = 0;
     let chain = Promise.resolve();   // one generation at a time
     const pending = new Map();
-    // Fast path uses the graphics chip (WebGPU); otherwise a smaller, slower model.
-    const attempts = navigator.gpu ? [['webgpu', 'fp16'], ['webgpu', 'fp32'], ['wasm', 'q8']] : [['wasm', 'q8']];
+    // Kokoro needs the graphics chip (WebGPU) to keep up with playback. On the CPU it
+    // takes longer to make each sentence than to say it, so we don't offer that.
+    const DTYPE = 'fp16';          // ~160 MB, one-time download
+    const STALL_MS = 45000;        // no download progress for this long = give up
+    const GENERATE_MS = 60000;     // one sentence taking this long = the worker died
 
     let lastPercent = -1;
     function onProgress(p) {
@@ -454,20 +457,29 @@
       setPlayerStatus(`Downloading Kokoro voice… ${percent}% (one time only)`);
     }
 
-    function tryLoad(dev, dtype) {
+    function tryLoad() {
       worker?.terminate();
-      worker = new Worker('kokoro-worker.js', { type: 'module' });
+      worker = new Worker('kokoro-worker.js?v=4', { type: 'module' });
       return new Promise((resolve, reject) => {
-        worker.onerror = e => reject(new Error(e.message || 'The voice worker failed to start.'));
+        let stallTimer;
+        const fail = err => { clearTimeout(stallTimer); reject(err); };
+        const resetStall = () => {
+          clearTimeout(stallTimer);
+          stallTimer = setTimeout(() => fail(new Error('the download stalled')), STALL_MS);
+        };
+        resetStall();
+        worker.onerror = e => fail(new Error(e.message || 'the voice worker failed to start'));
         worker.onmessage = ({ data }) => {
-          if (data.type === 'progress') onProgress(data.p);
-          else if (data.type === 'error') reject(new Error(data.message));
+          if (data.type === 'progress') { resetStall(); onProgress(data.p); }
+          else if (data.type === 'error') fail(new Error(data.message));
           else if (data.type === 'ready') {
+            clearTimeout(stallTimer);
             worker.onmessage = onResult;
+            worker.onerror = () => reset(new Error('the voice stopped unexpectedly'));
             resolve();
           }
         };
-        worker.postMessage({ type: 'load', device: dev, dtype });
+        worker.postMessage({ type: 'load', device: 'webgpu', dtype: DTYPE });
       });
     }
 
@@ -478,25 +490,38 @@
       if (data.error) p?.reject(new Error(data.error)); else p?.resolve(data.blob);
     }
 
+    // Throw away the worker so the next attempt starts fresh.
+    function reset(err) {
+      worker?.terminate();
+      worker = null;
+      readyPromise = null;
+      device = '';
+      for (const p of pending.values()) p.reject(err);
+      pending.clear();
+    }
+
     function load() {
       readyPromise ||= (async () => {
+        if (!navigator.gpu) {
+          readyPromise = null;
+          throw new Error('Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Pick a built-in voice for now.');
+        }
         setPlayerStatus('Starting Kokoro voice…');
-        for (const [dev, dtype] of attempts) {
+        let lastError;
+        for (let attempt = 1; attempt <= 2; attempt++) {   // one retry covers a dropped download
           try {
-            await tryLoad(dev, dtype);
-            device = dev;
-            setPlayerStatus(dev === 'wasm'
-              ? 'Kokoro is running in slow mode on this device, so there may be pauses.'
-              : 'Kokoro voice ready.', dev === 'wasm' ? 8000 : 2500);
+            lastPercent = -1;
+            await tryLoad();
+            device = 'webgpu';
+            setPlayerStatus('Kokoro voice ready.', 2500);
             return;
           } catch (err) {
-            console.warn(`Kokoro (${dev}/${dtype}) failed:`, err);
+            lastError = err;
+            console.warn(`Kokoro load attempt ${attempt} failed:`, err);
           }
         }
-        worker?.terminate();
-        worker = null;
-        readyPromise = null;
-        throw new Error('Kokoro voices couldn’t start on this device. Try a built-in voice.');
+        reset(lastError);
+        throw new Error(`Kokoro couldn’t start (${lastError?.message || 'unknown error'}). Press play to try again, or pick a built-in voice.`);
       })();
       return readyPromise;
     }
@@ -506,7 +531,11 @@
         await load();
         const id = ++nextId;
         return new Promise((resolve, reject) => {
-          pending.set(id, { resolve, reject });
+          const timer = setTimeout(() => reset(new Error('the voice stopped responding')), GENERATE_MS);
+          pending.set(id, {
+            resolve: v => { clearTimeout(timer); resolve(v); },
+            reject: e => { clearTimeout(timer); reject(e); },
+          });
           worker.postMessage({ type: 'generate', id, text, voice });
         });
       };

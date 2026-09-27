@@ -175,3 +175,4 @@ details li { margin-bottom: 6px; }
 }
 .player-status:empty { display: none; }
 details ul { padding-left: 1.2rem; }
+.version { text-align: center; margin-top: 32px; }
