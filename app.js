@@ -579,12 +579,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=6',
+    workerUrl: 'kokoro-worker.js?v=7',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=6' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=7' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -609,7 +609,7 @@
   }
 
   // Sentences are generated ahead of the one being read, one at a time.
-  const LOOKAHEAD = 30;
+  const LOOKAHEAD = 120;   // sentences, roughly 5–8 minutes of speech
   const audioCache = new Map();   // `${voice}|${index}` -> { promise, url }
   let generating = false;
   let generationWaiters = [];
@@ -668,7 +668,10 @@
   async function speakDownloaded(my) {
     const key = `${settings.voiceURI}|${idx}`;
     const ready = !!audioCache.get(key)?.url;
-    if (!ready && !/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
+    if (!ready) {
+      keepAudioAlive();
+      if (!/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
+    }
     let url;
     try {
       url = await audioFor(idx);
@@ -680,6 +683,7 @@
     }
     if (my !== token || !playing) return;
     audio.onended = () => { if (my === token && playing) advance(); };
+    audio.loop = false;
     audio.src = url;
     audio.playbackRate = settings.rate;
     // If nothing starts within a few seconds, say so instead of sitting silently.
@@ -704,7 +708,7 @@
     pumpGeneration();
   }
 
-  audio.addEventListener('playing', () => dbg(`playing sentence ${idx + 1}`));
+  audio.addEventListener('playing', () => { if (!audio.loop) dbg(`playing sentence ${idx + 1}`); });
   audio.addEventListener('error', () => dbg(`audio error code ${audio.error?.code}: ${audio.error?.message || ''}`));
   audio.addEventListener('stalled', () => dbg('audio stalled'));
 
@@ -734,7 +738,19 @@
   function silenceAll() {
     if (synth && (synth.speaking || synth.pending)) synth.cancel();
     audio.onended = null;
+    audio.loop = false;
     audio.pause();
+  }
+
+  // iOS ends a web page's audio session (and soon suspends the page) once its audio
+  // stops. Between sentences, or while the next one is still being made, loop a
+  // moment of silence so playback carries on with the screen locked.
+  function keepAudioAlive() {
+    if (audio.loop && !audio.paused) return;
+    audio.onended = null;
+    audio.loop = true;
+    audio.src = SILENCE;
+    audio.play().catch(() => {});
   }
 
   function speakCurrent() {
@@ -743,8 +759,11 @@
     const my = ++token;
     const s = sentences[idx];
     if (!s) return stop();
-    silenceAll();
+    const downloaded = isDownloadable();
+    if (downloaded) { if (synth?.speaking) synth.cancel(); }
+    else silenceAll();
     if (!speakable(s.text)) {           // scene breaks like "* * *": short pause, no speech
+      if (downloaded) keepAudioAlive();
       setTimeout(() => { if (my === token && playing) advance(); }, 400);
       return;
     }
