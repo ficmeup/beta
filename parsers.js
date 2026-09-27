@@ -85,15 +85,48 @@ const Parsers = (() => {
     return chapters.filter(c => c.paragraphs.length);
   }
 
+  // The work's own AO3 address, if the page or file mentions it.
+  const WORK_URL = /archiveofourown\.org\/works\/(\d+)/i;
+  const workUrlIn = text => {
+    const m = (text || '').match(WORK_URL);
+    return m ? `https://archiveofourown.org/works/${m[1]}` : '';
+  };
+
+  // AO3's info block (Rating … Stats) as [label, value] rows, from the <dl> on the
+  // website (dl.work.meta) or in downloads (dl.tags). Stats are nested, so flattened.
+  function infoFromDocument(doc) {
+    const dl = doc.querySelector('dl.work.meta, dl.tags');
+    if (!dl) return [];
+    const rows = [];
+    for (const dt of dl.querySelectorAll(':scope > dt')) {
+      const dd = dt.nextElementSibling;
+      if (!dd || dd.tagName.toLowerCase() !== 'dd') continue;
+      const label = textOf(dt).replace(/:$/, '');
+      const nested = dd.querySelector('dl');
+      if (nested) {
+        for (const ndt of nested.querySelectorAll('dt')) {
+          const ndd = ndt.nextElementSibling;
+          if (ndd) rows.push([textOf(ndt).replace(/:$/, ''), textOf(ndd)]);
+        }
+      } else {
+        const items = [...dd.querySelectorAll('li a, a.tag')].map(textOf).filter(Boolean);
+        rows.push([label, items.length ? [...new Set(items)].join(', ') : textOf(dd)]);
+      }
+    }
+    return rows.filter(([l, v]) => l && v);
+  }
+
   // A page from AO3 (via the Listen button) or a downloaded .html file.
   function fromDocument(doc, fallbackTitle = 'Untitled') {
     const title = workTitle(doc) || fallbackTitle;
-    return { title, author: workAuthor(doc), chapters: extractChapters(doc, title) };
+    const url = workUrlIn(doc.documentElement?.innerHTML);
+    return { title, author: workAuthor(doc), chapters: extractChapters(doc, title), info: infoFromDocument(doc), url };
   }
 
   const CHAPTER_LINE = /^(chapter|part|prologue|epilogue|interlude)\b.{0,80}$/i;
 
   function fromText(text, title = 'Untitled') {
+    const url = workUrlIn(text);
     const normalized = text.replace(/\r\n?/g, '\n');
     // Prefer blank-line paragraphs; fall back to one paragraph per line.
     const blocks = /\n\s*\n/.test(normalized) ? normalized.split(/\n\s*\n/) : normalized.split('\n');
@@ -109,7 +142,7 @@ const Parsers = (() => {
       if (!current) chapters.push(current = { title, paragraphs: [] });
       current.paragraphs.push(lines.join(' '));
     }
-    return { title, author: '', chapters: chapters.filter(c => c.paragraphs.length) };
+    return { title, author: '', chapters: chapters.filter(c => c.paragraphs.length), url };
   }
 
   function parseMarkup(str) {
@@ -147,6 +180,7 @@ const Parsers = (() => {
     const meta = name => textOf(opf.getElementsByTagNameNS('*', name)[0]);
 
     const title = meta('title') || file.name.replace(/\.epub$/i, '');
+    let info = [], url = '';
     const parts = [];
     for (const ref of opf.getElementsByTagNameNS('*', 'itemref')) {
       const href = manifest[ref.getAttribute('idref')];
@@ -154,12 +188,14 @@ const Parsers = (() => {
       const str = await readText(resolvePath(base, href));
       if (!str) continue;
       const doc = parseMarkup(str);
+      if (!info.length) info = infoFromDocument(doc);
+      url ||= workUrlIn(str);
       const heading = firstMatch(doc, ['h2.heading', 'h3.title', 'h1', 'h2', 'h3']);
       parts.push({ ao3: hasUserstuff(doc), chapters: extractChapters(doc, heading ? textOf(heading) : `Part ${parts.length + 1}`) });
     }
     // AO3 EPUBs also contain a title page and tag list; keep only the story parts.
     const story = parts.some(p => p.ao3) ? parts.filter(p => p.ao3) : parts;
-    return { title, author: meta('creator'), chapters: story.flatMap(p => p.chapters) };
+    return { title, author: meta('creator'), chapters: story.flatMap(p => p.chapters), info, url };
   }
 
   let pdfjsPromise;
@@ -250,8 +286,30 @@ const Parsers = (() => {
   const AO3_LABEL = /^(Archive Warnings?|Categor(y|ies)|Fandoms?|Relationships?|Characters?|Additional Tags|Language|Series|Collections?)\s*:/i;
   const POSTED_LINE = /^(Posted originally on the Archive of Our Own|at https?:\/\/(www\.)?archiveofourown\.org\/works\/)/i;
 
-  function stripAo3Info(chapters) {
-    return chapters.map((ch, c) => {
+  const STATS_KEYS = /(Published|Updated|Completed|Words|Chapters|Comments|Kudos|Bookmarks|Hits)\s*:\s*/gi;
+
+  // Turn the block's lines into [label, value] rows. In PDFs a label and its value
+  // are often on separate lines, and all the stats share one line.
+  function rowsFromLines(lines) {
+    const rows = [];
+    for (const line of lines) {
+      if (/^Stats\s*:/i.test(line) || (STATS_KEYS.lastIndex = 0, (line.match(STATS_KEYS) || []).length > 1)) {
+        const parts = line.replace(/^Stats\s*:\s*/i, '').split(STATS_KEYS).map(clean).filter(Boolean);
+        for (let i = 0; i + 1 < parts.length; i += 2) rows.push([parts[i], parts[i + 1]]);
+        continue;
+      }
+      const m = line.match(/^([A-Z][A-Za-z ]{1,30}):\s*(.*)$/);
+      if (m) rows.push([m[1], m[2]]);
+      else if (rows.length) rows[rows.length - 1][1] = clean(`${rows[rows.length - 1][1]} ${line}`);
+    }
+    return rows.filter(([, v]) => v);
+  }
+
+  // Splits AO3's info block (and the "Posted originally…" line) out of the story text,
+  // so it can be shown without being read aloud.
+  function splitAo3Info(chapters) {
+    let info = [];
+    const out = chapters.map((ch, c) => {
       if (c > 1) return ch;   // the block only ever appears at the very beginning
       let paras = ch.paragraphs.filter((p, i) => !(i < 5 && POSTED_LINE.test(p)));
       const start = paras.slice(0, 40).findIndex(p => META_START.test(p));
@@ -265,11 +323,15 @@ const Parsers = (() => {
         while (end >= 0 && end + 1 < paras.length && /^[\d,./?]+$/.test(paras[end + 1])) end++;
         // Only treat it as AO3's block if AO3's other labels are there too.
         const labels = paras.slice(start, end + 1).filter(p => AO3_LABEL.test(p)).length;
-        if (end > start && labels >= 2) paras = [...paras.slice(0, start), ...paras.slice(end + 1)];
+        if (end > start && labels >= 2) {
+          info = rowsFromLines(paras.slice(start, end + 1));
+          paras = [...paras.slice(0, start), ...paras.slice(end + 1)];
+        }
       }
       return paras.length === ch.paragraphs.length ? ch : { ...ch, paragraphs: paras };
     });
+    return { chapters: out, info };
   }
 
-  return { fromFile, fromText, fromDocument, stripAo3Info };
+  return { fromFile, fromText, fromDocument, splitAo3Info };
 })();

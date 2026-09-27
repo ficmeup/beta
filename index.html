@@ -21,10 +21,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=14" defer></script>
-<script src="app.js?v=14" defer></script>
+<script src="parsers.js?v=15" defer></script>
+<script src="app.js?v=15" defer></script>
 </head>
 <body>
 <div id="field" aria-hidden="true"></div>
@@ -86,13 +86,15 @@
 
   <section>
     <div class="sechead"><h3>Library</h3><span class="mono" id="libraryCount"></span></div>
+    <div id="libTabs" class="tabs" role="tablist"></div>
+    <div id="viewActions" class="view-actions"></div>
     <ul id="library" class="library"></ul>
     <p id="emptyLibrary" class="hint">No stories yet. Open a file from AO3 above.</p>
   </section>
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 14 · <a href="guide.html">Guide</a></span>
+    <span>Version 15 · <a href="guide.html">Guide</a></span>
   </footer>
 </main>
 
@@ -137,6 +139,13 @@
       <span>Voice <button type="button" id="previewBtn" class="link-btn">Preview</button></span>
       <select id="voiceSelect"></select>
     </label>
+    <div class="textsize">
+      <span>Text size <b id="textSizeValue">19</b></span>
+      <div>
+        <button type="button" id="textSmaller" class="secondary-btn" aria-label="Smaller text">A−</button>
+        <button type="button" id="textLarger" class="secondary-btn" aria-label="Larger text">A+</button>
+      </div>
+    </div>
     <label class="sleep">
       <span>Sleep timer <b id="sleepLeft"></b></span>
       <select id="sleepSelect">
@@ -159,6 +168,13 @@
   <p id="playerStatus" class="player-status" role="status"></p>
   <pre id="debugLog" class="debug-log" hidden></pre>
 </footer>
+
+<!-- the ⋯ menu for a story -->
+<dialog id="sheet" class="sheet">
+  <p class="mono" id="sheetTitle"></p>
+  <div id="sheetActions" class="sheet-actions"></div>
+  <form method="dialog"><button class="secondary-btn sheet-close">Close</button></form>
+</dialog>
 
 </body>
 </html>

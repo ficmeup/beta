@@ -17,6 +17,9 @@
     settingsToggle: $('#settingsToggle'), settingsPanel: $('#settings'),
     summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
     libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
+    libTabs: $('#libTabs'), viewActions: $('#viewActions'),
+    sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
+    textSmaller: $('#textSmaller'), textLarger: $('#textLarger'), textSizeValue: $('#textSizeValue'),
     downloadPrompt: $('#downloadPrompt'), downloadText: $('#downloadText'),
     promptPreviewBtn: $('#promptPreviewBtn'), downloadBtn: $('#downloadBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
   };
@@ -105,6 +108,25 @@
     document.documentElement.style.setProperty('--h2', (h + 140) % 360);
   }
 
+  // ---------- Queue, playlists and notes ----------
+  // Small, so they live in localStorage alongside the settings.
+  const Lists = (() => {
+    const KEY = 'fic-listener-lists';
+    let data = {};
+    try { data = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch {}
+    data.queue ||= [];        // work ids, in order
+    data.playlists ||= [];    // [{ id, name, items: [work ids] }]
+    data.notes ||= {};        // work id -> text
+    const save = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch {} };
+    const forget = id => {
+      data.queue = data.queue.filter(x => x !== id);
+      data.playlists.forEach(pl => { pl.items = pl.items.filter(x => x !== id); });
+      delete data.notes[id];
+      save();
+    };
+    return { data, save, forget };
+  })();
+
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
   function setStatus(msg) { els.status.textContent = msg; }
@@ -114,25 +136,124 @@
   async function addWork(parsed, sourceUrl) {
     if (!parsed.chapters.length) throw new Error('No story text was found in that file.');
     const works = await DB.allWorks();
-    const existing = sourceUrl && works.find(w => w.sourceUrl === sourceUrl);
+    const url = sourceUrl || parsed.url || '';
+    const existing = url && works.find(w => w.sourceUrl === url);
     const work = {
       id: existing?.id || newId(),
       title: parsed.title || 'Untitled',
       author: parsed.author || '',
       chapters: parsed.chapters,
-      sourceUrl: sourceUrl || '',
+      info: parsed.info || [],      // AO3's Rating…Stats block, shown but not read aloud
+      sourceUrl: url,
       added: existing?.added || Date.now(),
     };
     await DB.putWork(work);
     return work;
   }
 
+  // The library has three kinds of view: everything, the queue, and each playlist.
+  let libView = 'all';
+
+  function renderTabs(total) {
+    const tabs = [['all', `All ${total}`], ['queue', `Queue ${Lists.data.queue.length}`],
+      ...Lists.data.playlists.map(pl => [`pl:${pl.id}`, `${pl.name} ${pl.items.length}`])];
+    if (!tabs.some(([v]) => v === libView)) libView = 'all';
+    els.libTabs.replaceChildren(...tabs.map(([v, label]) => {
+      const b = document.createElement('button');
+      b.className = 'fbtn';
+      b.textContent = label;
+      b.setAttribute('aria-pressed', String(v === libView));
+      b.onclick = () => { libView = v; renderLibrary(); };
+      return b;
+    }));
+  }
+
+  function renderViewActions(items) {
+    const btn = (label, fn, primary) => {
+      const b = document.createElement('button');
+      b.className = primary ? 'primary-btn' : 'secondary-btn';
+      b.textContent = label;
+      b.onclick = fn;
+      return b;
+    };
+    const acts = [];
+    if (libView === 'queue' && items.length) {
+      acts.push(btn('Play queue', () => startList(items.map(w => w.id)), true));
+      acts.push(btn('Clear queue', () => { Lists.data.queue = []; Lists.save(); renderLibrary(); }));
+    } else if (libView.startsWith('pl:')) {
+      const pl = Lists.data.playlists.find(x => `pl:${x.id}` === libView);
+      if (items.length) acts.push(btn('Play all', () => startList(items.map(w => w.id)), true));
+      acts.push(btn('Rename', () => { const n = prompt('Playlist name', pl.name)?.trim(); if (n) { pl.name = n; Lists.save(); renderLibrary(); } }));
+      acts.push(btn('Delete playlist', () => {
+        if (!confirm(`Delete the playlist “${pl.name}”? The stories stay in your library.`)) return;
+        Lists.data.playlists = Lists.data.playlists.filter(x => x !== pl); Lists.save(); libView = 'all'; renderLibrary();
+      }));
+    }
+    els.viewActions.replaceChildren(...acts);
+  }
+
+  // Play a list in order: the first opens now, the rest go to the front of the queue.
+  async function startList(ids) {
+    if (!ids.length) return;
+    const [first, ...rest] = ids;
+    Lists.data.queue = [...rest, ...Lists.data.queue.filter(id => !ids.includes(id))];
+    Lists.save();
+    if (isDownloadable()) unlockAudio();   // this tap lets playback start once the story opens
+    await openWork(first, { fromStart: true });
+    play();
+  }
+
+  function openSheet(w) {
+    els.sheetTitle.textContent = w.title;
+    const acts = [];
+    const add = (label, fn) => {
+      const b = document.createElement('button');
+      b.className = 'sheet-btn';
+      b.textContent = label;
+      b.onclick = () => { els.sheet.close(); fn(); };
+      acts.push(b);
+    };
+    const q = Lists.data.queue;
+    add('Play next', () => { Lists.data.queue = [w.id, ...q.filter(x => x !== w.id)]; Lists.save(); renderLibrary(); setStatus(`“${w.title}” plays next.`); });
+    if (!q.includes(w.id)) add('Add to queue', () => { q.push(w.id); Lists.save(); renderLibrary(); setStatus(`“${w.title}” added to the queue.`); });
+    else add('Remove from queue', () => { Lists.data.queue = q.filter(x => x !== w.id); Lists.save(); renderLibrary(); });
+    for (const pl of Lists.data.playlists) {
+      if (pl.items.includes(w.id)) add(`Remove from “${pl.name}”`, () => { pl.items = pl.items.filter(x => x !== w.id); Lists.save(); renderLibrary(); });
+      else add(`Add to “${pl.name}”`, () => { pl.items.push(w.id); Lists.save(); renderLibrary(); setStatus(`Added to “${pl.name}”.`); });
+    }
+    add('New playlist…', () => {
+      const name = prompt('Name the playlist')?.trim();
+      if (!name) return;
+      Lists.data.playlists.push({ id: newId(), name, items: [w.id] });
+      Lists.save(); renderLibrary(); setStatus(`Made “${name}” with “${w.title}” in it.`);
+    });
+    add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
+    add('Remove from library', async () => {
+      if (!confirm(`Remove “${w.title}” from your library? Your notes on it go too.`)) return;
+      await DB.deleteWork(w.id);
+      Lists.forget(w.id);
+      renderLibrary();
+    });
+    els.sheetActions.replaceChildren(...acts);
+    els.sheet.showModal();
+  }
+
   async function renderLibrary() {
     const [works, positions] = await Promise.all([DB.allWorks(), DB.allPositions()]);
     const pos = new Map(positions.map(p => [p.id, p]));
-    works.sort((a, b) => (pos.get(b.id)?.updated || b.added) - (pos.get(a.id)?.updated || a.added));
+    const byId = new Map(works.map(w => [w.id, w]));
+    // drop ids of works that no longer exist
+    Lists.data.queue = Lists.data.queue.filter(id => byId.has(id));
+    Lists.data.playlists.forEach(pl => { pl.items = pl.items.filter(id => byId.has(id)); });
+    renderTabs(works.length);
 
-    els.library.replaceChildren(...works.map(w => {
+    let items;
+    if (libView === 'queue') items = Lists.data.queue.map(id => byId.get(id));
+    else if (libView.startsWith('pl:')) items = (Lists.data.playlists.find(x => `pl:${x.id}` === libView)?.items || []).map(id => byId.get(id));
+    else items = [...works].sort((a, b) => (pos.get(b.id)?.updated || b.added) - (pos.get(a.id)?.updated || a.added));
+    renderViewActions(items);
+
+    els.library.replaceChildren(...items.map((w, i) => {
       const li = document.createElement('li');
       const open = document.createElement('button');
       open.className = 'open';
@@ -142,25 +263,29 @@
       const p = pos.get(w.id);
       const count = w.chapters.length;
       meta.textContent = [
+        libView === 'all' ? '' : String(i + 1).padStart(2, '0'),
         w.author,
         count === 1 ? '1 chapter' : `${count} chapters`,
         p ? `at chapter ${p.chapter + 1}` : 'not started',
+        Lists.data.queue.includes(w.id) && libView !== 'queue' ? 'queued' : '',
+        Lists.data.notes[w.id] ? 'notes' : '',
       ].filter(Boolean).join(' · ');
       open.append(title, meta);
       open.onclick = () => openWork(w.id);
 
-      const del = document.createElement('button');
-      del.className = 'delete';
-      del.textContent = 'Remove';
-      del.onclick = async () => {
-        if (!confirm(`Remove “${w.title}” from your library?`)) return;
-        await DB.deleteWork(w.id);
-        renderLibrary();
-      };
-      li.append(open, del);
+      const more = document.createElement('button');
+      more.className = 'delete';
+      more.textContent = '⋯';
+      more.setAttribute('aria-label', `More for ${w.title}`);
+      more.onclick = () => openSheet(w);
+      li.append(open, more);
       return li;
     }));
-    els.emptyLibrary.hidden = works.length > 0;
+    const empty = !items.length;
+    els.emptyLibrary.hidden = !empty;
+    els.emptyLibrary.textContent = libView === 'queue' ? 'The queue is empty. Use ⋯ on a story to add it.'
+      : libView.startsWith('pl:') ? 'This playlist is empty. Use ⋯ on a story to add it.'
+      : 'No stories yet. Open a file from AO3 above.';
     els.libraryCount.textContent = works.length ? `${works.length} ${works.length === 1 ? 'story' : 'stories'}` : '';
   }
 
@@ -208,7 +333,8 @@
       + `const r=document.querySelector('#workskin');`
       + `if(!r){alert('Open a work on AO3 first, then tap Listen.');return}`
       + `if(document.querySelector('a[href*="view_full_work=true"]')&&!confirm('Only this chapter is on screen. OK: listen to this chapter only. Cancel: tap Entire Work first, then Listen again.'))return;`
-      + `const d={type:'fic-listener-import',html:r.outerHTML,url:location.href.split('#')[0]};`
+      + `const m=document.querySelector('dl.work.meta');`
+      + `const d={type:'fic-listener-import',html:(m?m.outerHTML:'')+r.outerHTML,url:location.href.split('#')[0]};`
       + `const go=()=>{const w=window.open(A+'#import','_blank');if(!w){alert('Allow pop-ups for AO3, then tap Listen again.');return}`
       + `const h=e=>{if(e.source===w&&e.data==='fic-listener-ready'){w.postMessage(d,O);removeEventListener('message',h)}};addEventListener('message',h)};`
       + `const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Mac/.test(navigator.platform));`
@@ -322,12 +448,16 @@
     });
   }
 
-  async function openWork(id) {
+  async function openWork(id, { fromStart = false } = {}) {
+    cancelQueueCountdown();
     stop();
     clearAudioCache();
     work = await DB.getWork(id);
     if (!work) return;
-    work.chapters = Parsers.stripAo3Info(work.chapters);   // skip AO3's Rating…Stats block
+    // AO3's Rating…Stats block is shown above the story but never read aloud.
+    const split = Parsers.splitAo3Info(work.chapters);
+    work.chapters = split.chapters;
+    if (!work.info?.length) work.info = split.info;
     setFieldFor(work.title);
     document.body.classList.add('reading');
     updateMediaSession();
@@ -342,6 +472,7 @@
     if (pos?.rate) setRate(pos.rate);   // each story remembers its own speed
     const ch = Math.min(pos?.chapter || 0, work.chapters.length - 1);
     idx = Math.min((chapterStarts[ch] || 0) + (pos?.sentence || 0), Math.max(sentences.length - 1, 0));
+    if (fromStart && idx >= sentences.length - 1) idx = 0;   // a finished work in the queue starts over
 
     els.appTitle.textContent = work.title;
     els.backBtn.hidden = false;
@@ -376,10 +507,12 @@
       sentences.push({ text, el: span, chapter });
       parent.append(span, ' ');
     };
+    frag.append(...renderWorkExtras());
     work.chapters.forEach((ch, c) => {
       chapterStarts.push(sentences.length);
       const h = document.createElement('h2');
-      addSentence(h, ch.title, c);
+      if (ch.paragraphs.length) addSentence(h, ch.title, c);
+      else h.textContent = ch.title;   // an empty chapter's title is shown, not read
       frag.append(h);
       for (const para of ch.paragraphs) {
         const p = document.createElement('p');
@@ -387,7 +520,71 @@
         frag.append(p);
       }
     });
+    frag.append(renderFinish());
     els.text.replaceChildren(frag);
+  }
+
+  const ao3Link = w => w.sourceUrl
+    || `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${encodeURIComponent(`"${w.title}" ${w.author || ''}`.trim())}`;
+
+  // AO3's info block and the reader's own notes, above the story. Neither is read aloud.
+  function renderWorkExtras() {
+    const out = [];
+    if (work.info?.length) {
+      const d = document.createElement('details');
+      d.className = 'work-info';
+      d.open = true;
+      d.innerHTML = '<summary>Work info</summary>';
+      const dl = document.createElement('dl');
+      for (const [label, value] of work.info) {
+        const dt = document.createElement('dt');
+        dt.textContent = label;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+      d.append(dl);
+      out.push(d);
+    }
+    const notes = document.createElement('details');
+    notes.className = 'notes';
+    const note = Lists.data.notes[work.id] || '';
+    notes.open = !!note;
+    notes.innerHTML = '<summary>Your notes</summary>';
+    const ta = document.createElement('textarea');
+    ta.rows = 4;
+    ta.placeholder = 'Saved on this device for now; they move to your account once sign-in is on. Not read aloud.';
+    ta.value = note;
+    const id = work.id;
+    let t;
+    ta.oninput = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        if (ta.value.trim()) Lists.data.notes[id] = ta.value; else delete Lists.data.notes[id];
+        Lists.save();
+      }, 400);
+    };
+    notes.append(ta);
+    out.push(notes);
+    return out;
+  }
+
+  // After the last sentence: send the reader back to AO3, where the writer sees it.
+  function renderFinish() {
+    const f = document.createElement('section');
+    f.className = 'finish';
+    const onAo3 = !!work.sourceUrl;
+    f.innerHTML = `
+      <p class="mono">End of work</p>
+      <p>The writer sees kudos and comments on AO3, and nothing from this app.</p>
+      <div class="cta">
+        <a class="primary-btn" target="_blank" rel="noopener"></a>
+        <a class="secondary-btn" target="_blank" rel="noopener" href="https://ko-fi.com/thisandthatspace">Support Fic Me Up</a>
+      </div>`;
+    const a = f.querySelector('.primary-btn');
+    a.href = ao3Link(work);
+    a.textContent = onAo3 ? 'Leave kudos on AO3' : 'Find it on AO3';
+    return f;
   }
 
   let highlighted = null;
@@ -705,12 +902,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=14',
+    workerUrl: 'kokoro-worker.js?v=15',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=14' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=15' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -954,15 +1151,40 @@
   function advance() {
     if (idx < sentences.length - 1 && sleepNow(idx + 1)) return goToSleep(idx + 1);
     if (idx < sentences.length - 1) { idx++; speakCurrent(); return; }
+    const wasDownloaded = isDownloadable();
     stop();
-    setPlayerStatus(`Finished “${work.title}”. `);
-    const tip = document.createElement('a');
-    tip.href = 'https://ko-fi.com/thisandthatspace';
-    tip.target = '_blank';
-    tip.rel = 'noopener';
-    tip.textContent = 'Fic Me Up is free. Support it on Ko-fi';
-    tip.addEventListener('click', (e) => e.stopPropagation());   // don't toggle the debug log
-    els.playerStatus.append(tip);
+    els.text.querySelector('.finish')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    playNextInQueue(wasDownloaded);
+  }
+
+  // ---------- The queue ----------
+  // When a work ends, the next queued one opens and plays after a short pause, so a
+  // queue runs without anyone touching the phone.
+  let queueTimer = null;
+  function cancelQueueCountdown() { clearTimeout(queueTimer); queueTimer = null; }
+
+  async function playNextInQueue(keepAlive) {
+    cancelQueueCountdown();
+    const finished = work?.title;
+    Lists.data.queue = Lists.data.queue.filter(id => id !== work?.id);
+    Lists.save();
+    const nextId = Lists.data.queue[0];
+    const next = nextId && await DB.getWork(nextId);
+    if (!next) return setPlayerStatus(`Finished “${finished}”.`);
+    if (keepAlive) keepAudioAlive();   // keeps a locked phone from ending the audio session
+    setPlayerStatus(`Finished “${finished}”. Next: “${next.title}” in 8 seconds. `);
+    const cancel = document.createElement('a');
+    cancel.href = '#';
+    cancel.textContent = 'Stay here';
+    cancel.onclick = e => { e.preventDefault(); e.stopPropagation(); cancelQueueCountdown(); silenceAll(); setPlayerStatus(`Finished “${finished}”.`); };
+    els.playerStatus.append(cancel);
+    queueTimer = setTimeout(async () => {
+      queueTimer = null;
+      Lists.data.queue = Lists.data.queue.filter(id => id !== nextId);
+      Lists.save();
+      await openWork(nextId, { fromStart: true });
+      play();
+    }, 8000);
   }
 
   function play() {
@@ -981,10 +1203,13 @@
     playing = true;
     updatePlayButton();
     keepScreenOn(!isDownloadable());
+    scheduleMini();
     speakCurrent();
   }
 
   function stop() {
+    clearTimeout(miniTimer);
+    els.player.classList.remove('mini');
     playing = false;
     token++;
     silenceAll();
@@ -1102,6 +1327,44 @@
       : sleep.mode === 'chapter' ? 'Sleep: end of chapter'
       : `Sleep ${Math.max(0, Math.ceil((sleep.endsAt - Date.now()) / 60000))} min`;
   }
+  // The player shrinks to one slim row 10 seconds after playback starts, and opens
+  // again on a tap, on pause, or when something needs an answer.
+  let miniTimer = null;
+  function setMini(on) {
+    els.player.classList.toggle('mini', on);
+    if (on) { els.settingsPanel.hidden = true; els.settingsToggle.setAttribute('aria-expanded', 'false'); }
+  }
+  function scheduleMini() {
+    clearTimeout(miniTimer);
+    miniTimer = setTimeout(() => {
+      if (playing && els.downloadPrompt.hidden && !els.player.matches(':focus-within')) setMini(true);
+    }, 10000);
+  }
+  els.player.addEventListener('pointerdown', e => {
+    if (els.player.classList.contains('mini') && !e.target.closest('button')) { e.preventDefault(); setMini(false); }
+    scheduleMini();
+  });
+
+  // Text size, remembered across stories.
+  const TEXT_SIZES = [15, 17, 19, 21, 24, 28, 32];
+  function applyTextSize() {
+    const size = TEXT_SIZES.includes(settings.textSize) ? settings.textSize : 19;
+    document.documentElement.style.setProperty('--text-size', `${size}px`);
+    els.textSizeValue.textContent = size;
+    els.textSmaller.disabled = size === TEXT_SIZES[0];
+    els.textLarger.disabled = size === TEXT_SIZES[TEXT_SIZES.length - 1];
+  }
+  const stepTextSize = d => {
+    const i = TEXT_SIZES.indexOf(TEXT_SIZES.includes(settings.textSize) ? settings.textSize : 19);
+    settings.textSize = TEXT_SIZES[Math.max(0, Math.min(TEXT_SIZES.length - 1, i + d))];
+    saveSettings();
+    applyTextSize();
+    highlight(true);
+  };
+  els.textSmaller.onclick = () => stepTextSize(-1);
+  els.textLarger.onclick = () => stepTextSize(1);
+  applyTextSize();
+
   els.settingsToggle.onclick = () => {
     const open = els.settingsPanel.hidden;
     els.settingsPanel.hidden = !open;

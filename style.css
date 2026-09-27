@@ -239,7 +239,7 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
   background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
   background-size: 5px 5px; background-repeat: no-repeat;
 }
-.text { font: 19px/1.78 var(--read); overflow-wrap: break-word; }
+.text { font: var(--text-size, 19px)/1.78 var(--read); overflow-wrap: break-word; }
 .text h2 {
   margin: 48px 0 20px; padding-bottom: 12px; border-bottom: 1px solid var(--rule);
   font: 400 11px/1.4 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
@@ -339,3 +339,69 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
 
 /* while reading, the top bar holds only the way back, the title and the room switch */
 body.reading .topbar nav a { display: none; }
+
+/* ---------- library views ---------- */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 14px 0 4px; }
+.fbtn {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.13em; text-transform: uppercase;
+  padding: 7px 10px; border: 1px solid var(--rule); border-radius: 0;
+  background: transparent; color: var(--dim); cursor: pointer; font-variant-numeric: tabular-nums;
+  transition: border-color 180ms, color 180ms;
+}
+.fbtn:hover { border-color: var(--dim); color: var(--ink); }
+.fbtn[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); }
+.view-actions { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 0 4px; }
+.view-actions:empty { display: none; }
+.library .delete { font-size: 18px; letter-spacing: 0; padding: 0 4px 0 16px; }
+
+/* the ⋯ menu */
+.sheet {
+  width: min(28rem, calc(100vw - 32px)); margin: auto auto calc(16px + env(safe-area-inset-bottom));
+  padding: 16px; border: 1px solid var(--rule); border-radius: 0;
+  background: var(--raise); color: var(--ink);
+}
+.sheet::backdrop { background: rgba(0,0,0,0.5); }
+.sheet .mono { margin: 0 0 10px; color: var(--dim); text-transform: none; letter-spacing: 0.02em; font-size: 12px; }
+.sheet-actions { display: grid; }
+.sheet-btn {
+  text-align: left; padding: 14px 0; background: none; border: none; border-bottom: 1px solid var(--rule);
+  font: 17px/1.3 var(--read); color: var(--ink); cursor: pointer;
+}
+.sheet-btn:last-child { color: var(--dim); }
+.sheet form { margin-top: 12px; }
+.sheet-close { width: 100%; }
+
+/* ---------- inside a story: info, notes, end ---------- */
+.work-info, .notes { border-bottom: 1px solid var(--rule); }
+.work-info:first-child { margin-top: 18px; }
+.work-info dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0 0 18px; }
+.work-info dt {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--faint); padding-top: 4px;
+}
+.work-info dd { margin: 0; font-size: 15px; line-height: 1.5; color: var(--dim); overflow-wrap: anywhere; }
+.notes textarea { font-size: 16px; margin-bottom: 16px; }
+.finish { margin: 56px 0 24px; padding-top: 20px; border-top: 1px solid var(--rule); display: grid; gap: 12px; }
+.finish p { margin: 0; color: var(--dim); font-size: 16px; }
+.finish .mono { color: var(--faint); }
+.finish .cta { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ---------- text size ---------- */
+.settings .textsize { display: grid; gap: 6px; flex: 1 1 180px; }
+.settings .textsize > span {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--faint);
+}
+.settings .textsize > span b { color: var(--ink); font-weight: 400; }
+.settings .textsize div { display: flex; gap: 8px; }
+.settings .textsize .secondary-btn { flex: 1; padding: 9px 0; font-size: 12px; letter-spacing: 0.05em; }
+
+/* ---------- the minimised player ---------- */
+.player.mini { padding-top: 14px; cursor: pointer; }
+.player.mini::before {
+  content: ''; position: absolute; top: 5px; left: 50%; width: 36px; height: 3px; margin-left: -18px;
+  background: var(--rule);
+}
+.player.mini #prevBtn, .player.mini #nextBtn,
+.player.mini .settings-toggle, .player.mini .settings, .player.mini .debug-log { display: none; }
+.player.mini .icon-btn.play { width: 44px; height: 44px; }
+.player.mini .controls { gap: 28px; }
