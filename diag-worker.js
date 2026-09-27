@@ -2,6 +2,24 @@
 // exactly where it happened. Used only by diag.html.
 const KOKORO_URL = 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js';
 const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
+const PHONEMIZER_URL = 'https://cdn.jsdelivr.net/npm/phonemizer@1.2.1/+esm';   // the pronunciation step Kokoro uses
+
+async function timed(label, fn) {
+  step(`${label}…`);
+  const started = performance.now();
+  const result = await fn();
+  step(`${label}: done in ${((performance.now() - started) / 1000).toFixed(1)}s`);
+  return result;
+}
+
+async function pronunciationCheck() {
+  const { phonemize } = await timed('Loading the pronunciation module', () => import(PHONEMIZER_URL));
+  for (const text of ['Hi.', 'She paused at the door, listening to the rain.']) {
+    const out = await timed(`Pronouncing "${text}"`, () => phonemize(text, 'en-us'));
+    step(`Sounds: ${[].concat(out).join(' ')}`);
+  }
+  step('The pronunciation step works.');
+}
 
 const post = (type, extra = {}) => self.postMessage({ type, ...extra });
 const step = msg => post('step', { msg });
@@ -53,6 +71,13 @@ async function kokoroCheck(device, dtype) {
     },
   });
   step('Model loaded and started.');
+  // Kokoro's generate() = pronunciation, then the voice file, then the model. Time each alone.
+  await pronunciationCheck();
+  await timed('Fetching the voice file', async () => (await fetch(`https://huggingface.co/${MODEL}/resolve/main/voices/af_heart.bin`)).arrayBuffer());
+  await timed('Running the voice model on ready-made sounds', async () => {
+    const { input_ids } = tts.tokenizer('həlˈoʊ.', { truncation: true });
+    await tts.generate_from_ids(input_ids, { voice: 'af_heart' });
+  });
   for (const text of ['Hi.', 'She paused at the door, listening to the rain against the window.']) {
     step(`Generating "${text}"…`);
     const started = performance.now();
@@ -71,6 +96,7 @@ async function kokoroCheck(device, dtype) {
 self.onmessage = async ({ data }) => {
   try {
     if (data.type === 'gpu') await gpuCheck();
+    else if (data.type === 'pronounce') await pronunciationCheck();
     else await kokoroCheck(data.device, data.dtype);
     post('done');
   } catch (err) {
