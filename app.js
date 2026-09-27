@@ -2,6 +2,13 @@
   'use strict';
 
   const $ = sel => document.querySelector(sel);
+
+  // The beta (ficmeup.github.io/beta/) keeps its own library, settings, queue and
+  // notes, so a test version can't damage anyone's real library. Downloaded voices
+  // are shared, so testers don't download them twice.
+  const IS_BETA = /^\/beta(\/|$)/.test(location.pathname);
+  const NS = IS_BETA ? 'beta-' : '';
+  if (IS_BETA) document.documentElement.classList.add('beta');
   const els = {
     appTitle: $('#appTitle'), backBtn: $('#backBtn'),
     libraryView: $('#libraryView'), readerView: $('#readerView'), player: $('#player'),
@@ -33,7 +40,7 @@
     function open() {
       dbPromise ||= new Promise(resolve => {
         try {
-          const req = indexedDB.open('fic-listener', 1);
+          const req = indexedDB.open(`${NS}fic-listener`, 1);
           req.onupgradeneeded = () => {
             req.result.createObjectStore('works', { keyPath: 'id' });
             req.result.createObjectStore('positions', { keyPath: 'id' });
@@ -71,11 +78,11 @@
 
   const settings = (() => {
     const defaults = { rate: 1, voiceURI: '' };
-    try { return { ...defaults, ...JSON.parse(localStorage.getItem('fic-listener-settings') || '{}') }; }
+    try { return { ...defaults, ...JSON.parse(localStorage.getItem(`${NS}fic-listener-settings`) || '{}') }; }
     catch { return defaults; }
   })();
   function saveSettings() {
-    try { localStorage.setItem('fic-listener-settings', JSON.stringify(settings)); } catch {}
+    try { localStorage.setItem(`${NS}fic-listener-settings`, JSON.stringify(settings)); } catch {}
   }
 
   // ---------- Rooms (dark / paper) ----------
@@ -112,7 +119,7 @@
   // ---------- Queue, playlists and notes ----------
   // Small, so they live in localStorage alongside the settings.
   const Lists = (() => {
-    const KEY = 'fic-listener-lists';
+    const KEY = `${NS}fic-listener-lists`;
     let data = {};
     try { data = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch {}
     data.queue ||= [];        // work ids, in order
@@ -1024,12 +1031,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=16',
+    workerUrl: 'kokoro-worker.js?v=17',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=16' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=17' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');

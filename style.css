@@ -435,3 +435,7 @@ body.reading .topbar nav a { display: none; }
   white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; padding: 12px;
   border: 1px solid var(--rule); font: 12px/1.5 var(--mono); color: var(--ink);
 }
+
+/* beta build */
+.beta-tag { display: none; border: 1px solid var(--rule); padding: 3px 6px; color: var(--ink); }
+html.beta .beta-tag { display: inline-block; }
