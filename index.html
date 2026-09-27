@@ -15,16 +15,23 @@
     var room = stored || (matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'dark');
     document.documentElement.setAttribute('data-room', room);
     window.__roomStored = stored;
+    // start loading the chosen story font straight away, so it doesn't swap in late
+    try {
+      var ns = /^\/beta(\/|$)/.test(location.pathname) ? 'beta-' : '';
+      var font = (JSON.parse(localStorage.getItem(ns + 'fic-listener-settings') || '{}') || {}).font;
+      var css = { literata: 'Literata:ital,opsz,wght@0,7..72,400;1,7..72,400', atkinson: 'Atkinson+Hyperlegible:ital,wght@0,400;1,400' }[font];
+      if (css) document.write('<link id="font-' + font + '" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=' + css + '&display=swap">');
+    } catch (e) {}
   })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=17" defer></script>
-<script src="app.js?v=17" defer></script>
+<script src="parsers.js?v=18" defer></script>
+<script src="app.js?v=18" defer></script>
 </head>
 <body>
 <div id="field" aria-hidden="true"></div>
@@ -95,7 +102,7 @@
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 17 · <a href="guide.html">Guide</a></span>
+    <span>Version 18 · <a href="guide.html">Guide</a></span>
   </footer>
 </main>
 
@@ -107,6 +114,9 @@
 </main>
 
 <footer id="player" class="player" hidden>
+  <button type="button" id="playerToggle" class="player-toggle" aria-label="Minimise player" aria-expanded="true">
+    <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+  </button>
   <div class="controls">
     <button id="back30Btn" class="icon-btn skip" aria-label="Back 30 seconds">
       <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16.5" text-anchor="middle">30</text></svg>

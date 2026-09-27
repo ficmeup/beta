@@ -25,6 +25,7 @@
     summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
     libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
     libTabs: $('#libTabs'), viewActions: $('#viewActions'),
+    playerToggle: $('#playerToggle'),
     sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
     fontSelect: $('#fontSelect'), chapterBar: $('.chapter-bar'), topbar: $('.topbar'),
     textSmaller: $('#textSmaller'), textLarger: $('#textLarger'), textSizeValue: $('#textSizeValue'),
@@ -282,6 +283,17 @@
     play();
   }
 
+  // Shares the fic's AO3 page (or an AO3 search for it), never the text.
+  async function shareWork(w) {
+    const url = ao3Link(w);
+    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}, on AO3`;
+    try {
+      if (navigator.share) { await navigator.share({ title: w.title, text, url }); return; }
+    } catch (err) { if (err.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(url); setStatus(`AO3 link for “${w.title}” copied.`); }
+    catch { prompt('Copy the AO3 link:', url); }
+  }
+
   function openSheet(w) {
     els.sheetTitle.textContent = w.title;
     const acts = [];
@@ -306,6 +318,7 @@
       Lists.data.playlists.push({ id: newId(), name, items: [w.id] });
       Lists.save(); renderLibrary(); setStatus(`Made “${name}” with “${w.title}” in it.`);
     });
+    add('Share', () => shareWork(w));
     add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
     add('Remove from library', async () => {
       if (!confirm(`Remove “${w.title}” from your library? Your notes on it go too.`)) return;
@@ -1031,12 +1044,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=17',
+    workerUrl: 'kokoro-worker.js?v=18',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=17' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=18' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1332,13 +1345,14 @@
     playing = true;
     updatePlayButton();
     keepScreenOn(!isDownloadable());
+    keptOpen = false;
     scheduleMini();
     speakCurrent();
   }
 
   function stop() {
     clearTimeout(miniTimer);
-    els.player.classList.remove('mini');
+    setMini(false);
     playing = false;
     token++;
     silenceAll();
@@ -1458,19 +1472,32 @@
   }
   // The player shrinks to one slim row 10 seconds after playback starts, and opens
   // again on a tap, on pause, or when something needs an answer.
-  let miniTimer = null;
+  // The ⌄ / ⌃ button minimises or opens it by hand; opened by hand, it stays open
+  // until the next time play is pressed.
+  let miniTimer = null, keptOpen = false;
   function setMini(on) {
     els.player.classList.toggle('mini', on);
+    els.playerToggle.setAttribute('aria-expanded', String(!on));
+    els.playerToggle.setAttribute('aria-label', on ? 'Open player' : 'Minimise player');
     if (on) { els.settingsPanel.hidden = true; els.settingsToggle.setAttribute('aria-expanded', 'false'); }
   }
   function scheduleMini() {
     clearTimeout(miniTimer);
+    if (keptOpen) return;
     miniTimer = setTimeout(() => {
-      if (playing && els.downloadPrompt.hidden && !els.player.matches(':focus-within')) setMini(true);
+      if (playing && !keptOpen && els.downloadPrompt.hidden && !els.player.matches(':focus-within')) setMini(true);
     }, 10000);
   }
+  els.playerToggle.onclick = e => {
+    e.stopPropagation();
+    const mini = els.player.classList.contains('mini');
+    keptOpen = mini;          // opening by hand keeps it open
+    clearTimeout(miniTimer);
+    setMini(!mini);
+  };
   els.player.addEventListener('pointerdown', e => {
-    if (els.player.classList.contains('mini') && !e.target.closest('button')) { e.preventDefault(); setMini(false); }
+    if (e.target.closest('#playerToggle')) return;
+    if (els.player.classList.contains('mini') && !e.target.closest('button')) { e.preventDefault(); keptOpen = false; setMini(false); }
     scheduleMini();
   });
 
