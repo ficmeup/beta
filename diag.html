@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Kokoro Test</title>
+<link rel="stylesheet" href="style.css?v=10">
+<style>
+  .tests { display: grid; gap: 8px; }
+  .tests button { width: 100%; text-align: left; }
+  #log { white-space: pre-wrap; font-size: 0.8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; min-height: 6em; overflow-wrap: anywhere; }
+  #live { font-weight: 600; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+</style>
+</head>
+<body>
+<header class="topbar"><h1>Kokoro Test</h1></header>
+<main class="page">
+  <p class="hint">Run these one at a time, top to bottom. Each one says how far it gets. When you're done, tap <b>Copy results</b> and paste them into your message. Use Wi-Fi: tests 2–4 download 90–310 MB the first time.</p>
+  <div class="tests">
+    <button class="secondary-btn" data-test="gpu">1. Graphics chip check (quick)</button>
+    <button class="secondary-btn" data-test="webgpu/fp32">2. Kokoro on graphics chip, full size (310 MB)</button>
+    <button class="secondary-btn" data-test="webgpu/fp16">3. Kokoro on graphics chip, half size (160 MB)</button>
+    <button class="secondary-btn" data-test="wasm/q8">4. Kokoro on regular processor (90 MB, slow)</button>
+  </div>
+  <p id="live"></p>
+  <div class="row">
+    <button class="primary-btn" id="copyBtn">Copy results</button>
+    <button class="secondary-btn" id="playBtn" disabled>Play last sound</button>
+    <button class="secondary-btn" id="clearBtn">Clear</button>
+  </div>
+  <div id="log"></div>
+</main>
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const KEY = 'fic-listener-kokoro-diag';
+  let lines = [];
+  try { lines = JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch {}
+  let running = null, started = 0, lastAlive = 0, lastUrl = null;
+
+  const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify(lines)); } catch {} };
+  const render = () => { $('#log').textContent = lines.join('\n'); };
+  const add = msg => {
+    const t = running ? ` +${((performance.now() - started) / 1000).toFixed(1)}s` : '';
+    lines.push(`[${running || 'info'}${t}] ${msg}`);
+    save(); render();
+  };
+
+  // If the page was reloaded mid-test, iOS most likely closed it for using too much memory.
+  const unfinished = sessionStorage.getItem(KEY + '-running');
+  if (unfinished) {
+    lines.push(`[${unfinished}] ⚠ The page reloaded during this test, so iOS probably closed it (usually for using too much memory).`);
+    sessionStorage.removeItem(KEY + '-running');
+    save();
+  }
+  if (!lines.length) {
+    add(`Device: ${navigator.userAgent}`);
+    add(`WebGPU on page: ${!!navigator.gpu}, cores: ${navigator.hardwareConcurrency}, memory hint: ${navigator.deviceMemory || 'n/a'} GB`);
+  }
+  render();
+
+  setInterval(() => {
+    if (!running) return;
+    const secs = ((performance.now() - started) / 1000).toFixed(0);
+    const quiet = ((performance.now() - lastAlive) / 1000).toFixed(0);
+    $('#live').textContent = `Running “${running}” for ${secs}s · worker ${quiet > 3 ? `silent for ${quiet}s (frozen?)` : 'responding'}`;
+  }, 500);
+
+  document.querySelectorAll('[data-test]').forEach(btn => {
+    btn.onclick = () => {
+      if (running) return add('A test is already running. Wait for it, or reload the page.');
+      running = btn.dataset.test;
+      started = lastAlive = performance.now();
+      sessionStorage.setItem(KEY + '-running', running);
+      add('Started.');
+      const worker = new Worker('diag-worker.js?v=1', { type: 'module' });
+      const finish = () => { worker.terminate(); sessionStorage.removeItem(KEY + '-running'); running = null; $('#live').textContent = ''; };
+      worker.onerror = e => { add(`Worker crashed: ${e.message || 'no details'}`); finish(); };
+      worker.onmessage = ({ data }) => {
+        if (data.type === 'alive') { lastAlive = performance.now(); return; }
+        if (data.type === 'step') add(data.msg);
+        else if (data.type === 'progress') add(`Downloading/reading model: ${data.pct}%`);
+        else if (data.type === 'audio') { if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = URL.createObjectURL(data.blob); $('#playBtn').disabled = false; }
+        else if (data.type === 'error') { add(`ERROR: ${data.msg}`); finish(); }
+        else if (data.type === 'done') { add('Finished.'); finish(); }
+      };
+      const [device, dtype] = running.split('/');
+      worker.postMessage(running === 'gpu' ? { type: 'gpu' } : { type: 'kokoro', device, dtype });
+    };
+  });
+
+  $('#playBtn').onclick = () => { if (lastUrl) new Audio(lastUrl).play().catch(e => add(`Couldn’t play: ${e.name}`)); };
+  $('#clearBtn').onclick = () => { lines = []; save(); location.reload(); };
+  $('#copyBtn').onclick = async () => {
+    const text = lines.join('\n');
+    try { await navigator.clipboard.writeText(text); $('#copyBtn').textContent = 'Copied!'; }
+    catch { prompt('Copy these results:', text); }
+    setTimeout(() => { $('#copyBtn').textContent = 'Copy results'; }, 2000);
+  };
+})();
+</script>
+</body>
+</html>
