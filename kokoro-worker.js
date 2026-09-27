@@ -1,4 +1,4 @@
-// Runs the Kokoro voice model off the main thread. The model (~160 MB) downloads once,
+// Runs the Kokoro voice model off the main thread. The model (~310 MB) downloads once,
 // then the browser caches it. Text never leaves the device.
 import { KokoroTTS } from 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js';
 
@@ -27,7 +27,7 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.type === 'load') {
       tts ||= await KokoroTTS.from_pretrained(MODEL, {
-        dtype: 'fp16',
+        dtype: 'fp32',
         device: 'webgpu',
         progress_callback: p => {
           if (p.status === 'progress' && /\.onnx$/.test(p.file || '')) self.postMessage({ type: 'progress', id, percent: p.progress });

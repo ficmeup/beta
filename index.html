@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>Fic Listener</title>
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=10">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=8" defer></script>
-<script src="app.js?v=8" defer></script>
+<script src="parsers.js?v=10" defer></script>
+<script src="app.js?v=10" defer></script>
 </head>
 <body>
 
@@ -41,13 +41,11 @@
 
     <details>
       <summary>Voices</summary>
-      <p><b>Kokoro voices</b> (listed first) sound the most natural and keep playing with the screen locked. The first time you choose one, it downloads about 160 MB (once). Adding this app to your Home Screen keeps that download from being cleared.</p>
-      <p><b>Built-in voices:</b> your phone can download much better versions of its own voices:</p>
-      <ul>
-        <li><b>iPhone/iPad:</b> Settings → Accessibility → Spoken Content → Voices → English. Pick a voice and download one marked <b>Premium</b> or <b>Enhanced</b> (e.g. Ava, Zoe, Evan). Then close and reopen this app.</li>
-        <li><b>Mac:</b> System Settings → Accessibility → Spoken Content → System Voice → Manage Voices.</li>
-      </ul>
-      <p class="hint">Apple doesn’t let websites use Siri voices, so those won’t appear in the list.</p>
+      <p><b>Piper voices</b> sound natural, work on phones and computers, and keep playing with the screen locked. Each voice downloads about 60 MB the first time you pick it. Linda and Cori are trained on audiobook narration.</p>
+      <p><b>Kokoro voices</b> (computers only) are the most natural. They download about 310 MB once and need a recent browser.</p>
+      <p><b>Built-in voices</b> need no download, but stop when the screen locks.</p>
+      <p class="hint">Safari only lets websites use a basic set of built-in voices. Voices you download in your device’s Accessibility settings (Premium, Enhanced, Siri) don’t appear here; that’s Apple’s rule for websites.</p>
+      <p class="hint">Adding this app to your Home Screen keeps downloaded voices from being cleared.</p>
     </details>
 
     <p id="status" role="status"></p>
@@ -58,7 +56,7 @@
     <ul id="library" class="library"></ul>
     <p id="emptyLibrary" class="hint">Nothing here yet. Add a story above.</p>
   </section>
-  <p class="hint version">Fic Listener · version 8</p>
+  <p class="hint version">Fic Listener · version 10</p>
 </main>
 
 <main id="readerView" class="page reader" hidden>
@@ -70,6 +68,9 @@
 
 <footer id="player" class="player" hidden>
   <div class="controls">
+    <button id="back30Btn" class="icon-btn skip" aria-label="Back 30 seconds">
+      <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16.5" text-anchor="middle">30</text></svg>
+    </button>
     <button id="prevBtn" class="icon-btn" aria-label="Previous sentence">
       <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
     </button>
@@ -79,6 +80,9 @@
     </button>
     <button id="nextBtn" class="icon-btn" aria-label="Next sentence">
       <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+    </button>
+    <button id="fwd30Btn" class="icon-btn skip" aria-label="Forward 30 seconds">
+      <svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16.5" text-anchor="middle">30</text></svg>
     </button>
   </div>
   <div class="settings">
@@ -90,6 +94,24 @@
       <span>Voice <button type="button" id="previewBtn" class="link-btn">Preview</button></span>
       <select id="voiceSelect"></select>
     </label>
+    <label class="sleep">
+      <span>Sleep timer <b id="sleepLeft"></b></span>
+      <select id="sleepSelect">
+        <option value="off">Off</option>
+        <option value="15">15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="45">45 minutes</option>
+        <option value="60">1 hour</option>
+        <option value="chapter">End of chapter</option>
+      </select>
+    </label>
+  </div>
+  <div id="downloadPrompt" class="download-prompt" hidden>
+    <p id="downloadText"></p>
+    <div>
+      <button type="button" id="promptPreviewBtn" class="secondary-btn">▶ Preview</button>
+      <button type="button" id="downloadBtn" class="primary-btn">Download</button>
+    </div>
   </div>
   <p id="playerStatus" class="player-status" role="status"></p>
   <pre id="debugLog" class="debug-log" hidden></pre>

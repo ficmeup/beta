@@ -8,7 +8,7 @@
   --accent-text: #ffffff;
   --highlight: #fde9a8;
   --highlight-text: #25221e;
-  --player-h: 150px;
+  --player-h: 230px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -142,7 +142,7 @@ details li { margin-bottom: 6px; }
   padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
   box-shadow: 0 -4px 16px rgb(0 0 0 / 0.06);
 }
-.controls { display: flex; justify-content: center; align-items: center; gap: 28px; }
+.controls { display: flex; justify-content: center; align-items: center; gap: 12px; }
 .icon-btn {
   display: grid; place-items: center;
   width: 44px; height: 44px; border-radius: 50%;
@@ -182,3 +182,14 @@ details ul { padding-left: 1.2rem; }
   padding: 8px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
   font-size: 0.75rem; white-space: pre-wrap;
 }
+.icon-btn.skip text { font: 700 6.5px -apple-system, sans-serif; fill: currentColor; }
+.settings label.sleep b { font-weight: 600; }
+.download-prompt {
+  max-width: 40rem; margin: 10px auto 0; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+  font-size: 0.9rem;
+}
+.download-prompt p { margin: 0 0 8px; }
+.download-prompt div { display: flex; gap: 8px; flex-wrap: wrap; }
+.download-prompt .primary-btn { padding: 6px 12px; }
+.download-prompt .primary-btn:disabled { opacity: 0.6; }

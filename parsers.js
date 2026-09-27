@@ -12,7 +12,7 @@ const Parsers = (() => {
   // Split an element into paragraphs, treating every block element and <br> as a break.
   function paragraphsOf(el, { markHeadings = false } = {}) {
     const c = el.cloneNode(true);
-    c.querySelectorAll('script,style,.landmark').forEach(n => n.remove());
+    c.querySelectorAll('script,style,.landmark,dl.tags,dl.work.meta,dl.stats').forEach(n => n.remove());
     if (markHeadings) c.querySelectorAll('h1,h2').forEach(h => h.prepend(HEADING_MARK));
     c.querySelectorAll(BLOCKS).forEach(n => { n.before('\n'); n.after('\n'); });
     return c.textContent.split('\n').map(clean).filter(Boolean);
@@ -238,5 +238,35 @@ const Parsers = (() => {
     return fromText(await file.text(), bare);
   }
 
-  return { fromFile, fromText, fromDocument };
+  // AO3 puts an info block before the story: Rating, Archive Warning, Category, Fandom,
+  // Relationship, Characters, Additional Tags, Language, Series, Stats. Downloads (PDF
+  // especially) and pasted text include it as ordinary paragraphs, so drop it when found
+  // near the start, along with the "Posted originally on the Archive of Our Own" line.
+  const META_START = /^Rating\s*:/i;
+  const STATS_LINE = /^(Stats|Published|Updated|Completed|Words|Chapters|Comments|Kudos|Bookmarks|Hits)\s*:/i;
+  const AO3_LABEL = /^(Archive Warnings?|Categor(y|ies)|Fandoms?|Relationships?|Characters?|Additional Tags|Language|Series|Collections?)\s*:/i;
+  const POSTED_LINE = /^(Posted originally on the Archive of Our Own|at https?:\/\/(www\.)?archiveofourown\.org\/works\/)/i;
+
+  function stripAo3Info(chapters) {
+    return chapters.map((ch, c) => {
+      if (c > 1) return ch;   // the block only ever appears at the very beginning
+      let paras = ch.paragraphs.filter((p, i) => !(i < 5 && POSTED_LINE.test(p)));
+      const start = paras.slice(0, 40).findIndex(p => META_START.test(p));
+      if (start >= 0) {
+        let end = -1;
+        for (let i = start + 1; i < Math.min(paras.length, start + 80); i++) {
+          if (STATS_LINE.test(paras[i])) end = i;
+          else if (end >= 0 && i - end > 2) break;   // past the stats lines
+        }
+        // Stat values sometimes sit on their own lines just after a "Label:" line.
+        while (end >= 0 && end + 1 < paras.length && /^[\d,./?]+$/.test(paras[end + 1])) end++;
+        // Only treat it as AO3's block if AO3's other labels are there too.
+        const labels = paras.slice(start, end + 1).filter(p => AO3_LABEL.test(p)).length;
+        if (end > start && labels >= 2) paras = [...paras.slice(0, start), ...paras.slice(end + 1)];
+      }
+      return paras.length === ch.paragraphs.length ? ch : { ...ch, paragraphs: paras };
+    });
+  }
+
+  return { fromFile, fromText, fromDocument, stripAo3Info };
 })();

@@ -12,7 +12,10 @@
     prevBtn: $('#prevBtn'), playBtn: $('#playBtn'), nextBtn: $('#nextBtn'),
     playIcon: $('#playIcon'), pauseIcon: $('#pauseIcon'),
     rate: $('#rate'), rateValue: $('#rateValue'), voiceSelect: $('#voiceSelect'),
-    previewBtn: $('#previewBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
+    previewBtn: $('#previewBtn'), back30Btn: $('#back30Btn'), fwd30Btn: $('#fwd30Btn'),
+    sleepSelect: $('#sleepSelect'), sleepLeft: $('#sleepLeft'),
+    downloadPrompt: $('#downloadPrompt'), downloadText: $('#downloadText'),
+    promptPreviewBtn: $('#promptPreviewBtn'), downloadBtn: $('#downloadBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
   };
 
   // ---------- Storage: works and reading positions live in IndexedDB on this device ----------
@@ -256,14 +259,17 @@
     clearAudioCache();
     work = await DB.getWork(id);
     if (!work) return;
+    work.chapters = Parsers.stripAo3Info(work.chapters);   // skip AO3's Rating…Stats block
     updateMediaSession();
     const choice = downloadableChoice();
-    if (choice) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
+    if (choice && isDownloaded()) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
+    updateDownloadPrompt();
     const pos = await DB.getPosition(id);
 
     els.chapterSelect.replaceChildren(...work.chapters.map((c, i) => new Option(c.title, i)));
     els.chapterSelect.hidden = work.chapters.length < 2;
     renderWork();
+    if (pos?.rate) setRate(pos.rate);   // each story remembers its own speed
     const ch = Math.min(pos?.chapter || 0, work.chapters.length - 1);
     idx = Math.min((chapterStarts[ch] || 0) + (pos?.sentence || 0), Math.max(sentences.length - 1, 0));
 
@@ -331,7 +337,7 @@
   function savePosition() {
     if (!work) return;
     const ch = chapterOf(idx);
-    const p = { id: work.id, chapter: ch, sentence: idx - (chapterStarts[ch] || 0), updated: Date.now() };
+    const p = { id: work.id, chapter: ch, sentence: idx - (chapterStarts[ch] || 0), rate: settings.rate, updated: Date.now() };
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => DB.putPosition(p), 400);
   }
@@ -393,6 +399,51 @@
   }
   const isDownloadable = () => !!downloadableChoice();
 
+  // ---------- Which downloadable voices are already on this device ----------
+  // Piper voices are found in the browser cache; Kokoro (one shared model) is remembered
+  // after its first successful download.
+  const DOWNLOAD_MB = { Kokoro: 310, Piper: 60 };
+  const downloaded = new Set((() => {
+    try { return JSON.parse(localStorage.getItem('fic-listener-downloaded') || '[]'); } catch { return []; }
+  })());
+  const downloadKey = uri => (uri.startsWith(KOKORO_PREFIX) ? 'kokoro-fp32' : uri);
+  const isDownloaded = (uri = settings.voiceURI) => !downloadableChoice(uri) || downloaded.has(downloadKey(uri));
+  function markDownloaded(uri) {
+    downloaded.add(downloadKey(uri));
+    try { localStorage.setItem('fic-listener-downloaded', JSON.stringify([...downloaded])); } catch {}
+  }
+  async function findCachedPiperVoices() {
+    try {
+      const keys = await (await caches.open('piper-voices-v1')).keys();
+      for (const req of keys) {
+        const m = req.url.match(/\/([^/]+)\.onnx$/);
+        if (m) downloaded.add(PIPER_PREFIX + m[1]);
+      }
+    } catch {}
+  }
+
+  function voiceDisplayName(uri = settings.voiceURI) {
+    const choice = downloadableChoice(uri);
+    const list = uri.startsWith(KOKORO_PREFIX) ? KOKORO_VOICES : PIPER_VOICES;
+    return list.find(([id]) => id === choice?.voice)?.[1] || 'This voice';
+  }
+
+  function updateDownloadPrompt() {
+    const choice = downloadableChoice();
+    const show = !!choice && !isDownloaded();
+    els.downloadPrompt.hidden = !show;
+    if (show) {
+      els.downloadText.textContent = `${voiceDisplayName()} is a ${choice.engine.name} voice. It needs a one-time download of about ${DOWNLOAD_MB[choice.engine.name]} MB. Listen to a preview first?`;
+      els.downloadBtn.textContent = `Download (${DOWNLOAD_MB[choice.engine.name]} MB)`;
+      els.downloadBtn.disabled = false;
+    }
+  }
+
+  // Kokoro gets stuck making its first sentence on iPhones and iPads, so it's only offered on computers.
+  const isAppleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const kokoroOffered = !isAppleMobile;
+
   const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Deranged|Hysterical|Pipe Organ)\b/;
 
   function voiceQuality(v) {
@@ -432,17 +483,17 @@
     const rest = mine.filter(v => rank(v) === 0);
     const others = voices.filter(v => !v.lang.toLowerCase().startsWith(lang));
     els.voiceSelect.replaceChildren(
-      group('Kokoro: most natural, needs a recent device (160 MB once)',
-        KOKORO_VOICES.map(([id, name, desc]) => new Option(`${name} · ${desc}`, KOKORO_PREFIX + id))),
-      group('Piper: natural, works on most devices (60 MB per voice)',
+      group('Piper: natural, keeps playing when locked (60 MB per voice)',
         PIPER_VOICES.map(([id, name, desc]) => new Option(`${name} · ${desc}`, PIPER_PREFIX + id))),
+      ...(kokoroOffered ? [group('Kokoro: most natural, computers only (310 MB once)',
+        KOKORO_VOICES.map(([id, name, desc]) => new Option(`${name} · ${desc}`, KOKORO_PREFIX + id)))] : []),
       ...(best.length ? [group('Best voices on this device', opts(best))] : []),
       ...(rest.length ? [group(best.length ? 'Other voices on this device' : 'Voices on this device', opts(rest))] : []),
       ...(others.length ? [group('Other languages', opts(others))] : []),
     );
     const choice = downloadableChoice();
     const known = choice
-      ? [...KOKORO_VOICES, ...PIPER_VOICES].some(([id]) => id === choice.voice)
+      ? [...(kokoroOffered ? KOKORO_VOICES : []), ...PIPER_VOICES].some(([id]) => id === choice.voice)
       : voices.some(v => v.voiceURI === settings.voiceURI);
     if (!known) settings.voiceURI = (mine[0] || voices[0])?.voiceURI || KOKORO_PREFIX + 'af_heart';
     els.voiceSelect.value = settings.voiceURI;
@@ -582,12 +633,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=8',
+    workerUrl: 'kokoro-worker.js?v=10',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=8' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=10' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -774,7 +825,61 @@
     else speakDevice(my, s.text);
   }
 
+  // ---------- Sleep timer ----------
+  // Checked between sentences, so it never cuts one off mid-way.
+  let sleep = { mode: 'off', endsAt: 0 };
+
+  function updateSleepLabel() {
+    if (sleep.mode === 'time') {
+      const mins = Math.max(0, Math.ceil((sleep.endsAt - Date.now()) / 60000));
+      els.sleepLeft.textContent = `· ${mins} min left`;
+    } else {
+      els.sleepLeft.textContent = sleep.mode === 'chapter' ? '· end of chapter' : '';
+    }
+  }
+  setInterval(updateSleepLabel, 15000);
+
+  els.sleepSelect.onchange = () => {
+    const v = els.sleepSelect.value;
+    sleep = v === 'off' ? { mode: 'off' }
+      : v === 'chapter' ? { mode: 'chapter' }
+      : { mode: 'time', endsAt: Date.now() + Number(v) * 60000 };
+    updateSleepLabel();
+  };
+
+  function sleepNow(nextIdx) {
+    if (sleep.mode === 'time') return Date.now() >= sleep.endsAt;
+    if (sleep.mode === 'chapter') return chapterOf(nextIdx) !== chapterOf(idx);
+    return false;
+  }
+
+  function goToSleep(nextIdx) {
+    if (sleep.mode === 'chapter') idx = nextIdx;   // resume at the start of the next chapter
+    sleep = { mode: 'off' };
+    els.sleepSelect.value = 'off';
+    updateSleepLabel();
+    stop();
+    highlight();
+    savePosition();
+    setPlayerStatus('Sleep timer: paused. Press play to carry on.');
+  }
+
+  // ---------- Skipping by time ----------
+  // Roughly 15 characters per second of speech at normal speed.
+  const estimatedSeconds = i => (sentences[i]?.text.length || 0) / 15;
+
+  function skipSeconds(delta) {
+    let i = idx, total = 0;
+    if (delta < 0) {
+      while (i > 0 && total < -delta) { i--; total += estimatedSeconds(i); }
+    } else {
+      while (i < sentences.length - 1 && total < delta) { total += estimatedSeconds(i); i++; }
+    }
+    jump(i, true);
+  }
+
   function advance() {
+    if (idx < sentences.length - 1 && sleepNow(idx + 1)) return goToSleep(idx + 1);
     if (idx < sentences.length - 1) { idx++; speakCurrent(); return; }
     stop();
     setPlayerStatus(`Finished “${work.title}”.`);
@@ -782,6 +887,15 @@
 
   function play() {
     if (!sentences.length) return;
+    if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) {   // timer ran out while paused
+      sleep = { mode: 'off' };
+      els.sleepSelect.value = 'off';
+      updateSleepLabel();
+    }
+    if (!isDownloaded()) {
+      updateDownloadPrompt();
+      return setPlayerStatus('Download this voice to start listening, or pick another one.');
+    }
     if (isDownloadable()) unlockAudio();
     else if (!synth) return setPlayerStatus('This browser can’t use built-in voices. Pick a Kokoro voice.');
     playing = true;
@@ -818,6 +932,8 @@
       pause: () => stop(),
       previoustrack: () => jump(idx - 1),
       nexttrack: () => jump(idx + 1),
+      seekbackward: () => skipSeconds(-30),
+      seekforward: () => skipSeconds(30),
     };
     for (const [action, fn] of Object.entries(handlers)) {
       try { navigator.mediaSession.setActionHandler(action, fn); } catch {}
@@ -829,19 +945,13 @@
     if (playing) stop();
     const choice = downloadableChoice();
     if (choice) {
-      unlockAudio();
-      if (!els.playerStatus.textContent) setPlayerStatus('Preparing voice…');
-      try {
-        const blob = await choice.engine.generate(text, choice.voice);
-        if (playing) return;
-        audio.onended = null;
-        audio.src = URL.createObjectURL(blob);
-        audio.playbackRate = settings.rate;
-        await audio.play();
-        if (/Preparing voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
-      } catch (err) {
-        setPlayerStatus(err.message);
-      }
+      // A short recorded sample, so a voice can be heard before downloading it.
+      silenceAll();
+      const prefix = choice.engine === KokoroEngine ? 'kokoro' : 'piper';
+      audio.src = `samples/${prefix}-${choice.voice}.m4a`;
+      audio.playbackRate = settings.rate;
+      try { await audio.play(); }
+      catch (err) { setPlayerStatus(`Couldn’t play the preview (${err.name}).`); }
     } else if (synth) {
       silenceAll();
       speakDevice(++token, text);
@@ -872,6 +982,26 @@
   els.prevBtn.onclick = () => jump(idx - 1);
   els.nextBtn.onclick = () => jump(idx + 1);
   els.previewBtn.onclick = preview;
+  els.promptPreviewBtn.onclick = preview;
+  els.downloadBtn.onclick = async () => {
+    const choice = downloadableChoice();
+    if (!choice) return;
+    const uri = settings.voiceURI;
+    unlockAudio();   // this tap lets the story start playing once the download finishes
+    els.downloadBtn.disabled = true;
+    els.downloadBtn.textContent = 'Downloading…';
+    try {
+      await choice.engine.load(choice.voice);
+      markDownloaded(uri);
+      updateDownloadPrompt();
+      if (settings.voiceURI === uri && work && !playing) play();
+    } catch (err) {
+      setPlayerStatus(err.message);
+      updateDownloadPrompt();
+    }
+  };
+  els.back30Btn.onclick = () => skipSeconds(-30);
+  els.fwd30Btn.onclick = () => skipSeconds(30);
   els.playerStatus.onclick = () => { els.debugLog.hidden = !els.debugLog.hidden; };
   els.chapterSelect.onchange = () => jump(chapterStarts[Number(els.chapterSelect.value)], true);
   els.text.onclick = e => {
@@ -881,14 +1011,15 @@
     if (playing) speakCurrent(); else play();
   };
 
-  els.rate.value = settings.rate;
-  els.rateValue.textContent = `${Number(settings.rate).toFixed(1)}×`;
-  els.rate.oninput = () => {
-    settings.rate = Number(els.rate.value);
+  function setRate(rate) {
+    settings.rate = Number(rate);
+    els.rate.value = settings.rate;
     els.rateValue.textContent = `${settings.rate.toFixed(1)}×`;
-    audio.playbackRate = settings.rate;   // Kokoro audio changes speed immediately
+    audio.playbackRate = settings.rate;   // downloaded voices change speed immediately
     saveSettings();
-  };
+  }
+  setRate(settings.rate);
+  els.rate.oninput = () => { setRate(els.rate.value); savePosition(); };
   els.rate.onchange = () => { if (playing && !isDownloadable()) speakCurrent(); };
   els.voiceSelect.onchange = () => {
     settings.voiceURI = els.voiceSelect.value;
@@ -896,6 +1027,11 @@
     clearAudioCache();
     const choice = downloadableChoice();
     for (const engine of [KokoroEngine, PiperEngine]) if (engine !== choice?.engine) engine.unload();
+    updateDownloadPrompt();
+    if (!isDownloaded()) {   // ask first: preview, then download if they like it
+      if (playing) stop();
+      return;
+    }
     if (choice) choice.engine.load(choice.voice).catch(err => setPlayerStatus(err.message));
     if (playing) {
       keepScreenOn(!choice);
@@ -912,6 +1048,7 @@
   });
 
   loadVoices();
+  findCachedPiperVoices().then(updateDownloadPrompt);
   if (synth) {
     synth.addEventListener?.('voiceschanged', loadVoices);
     // Safari sometimes loads voices late without firing the event.
