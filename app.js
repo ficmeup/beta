@@ -25,7 +25,7 @@
     summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
     libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
     libTabs: $('#libTabs'), viewActions: $('#viewActions'),
-    playerToggle: $('#playerToggle'),
+    playerToggle: $('#playerToggle'), ao3Link: $('#ao3Link'),
     sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
     fontSelect: $('#fontSelect'), chapterBar: $('.chapter-bar'), topbar: $('.topbar'),
     textSmaller: $('#textSmaller'), textLarger: $('#textLarger'), textSizeValue: $('#textSizeValue'),
@@ -604,6 +604,8 @@
     if (fromStart && idx >= sentences.length - 1) idx = 0;   // a finished work in the queue starts over
 
     els.appTitle.textContent = work.title;
+    els.ao3Link.href = ao3Link(work);
+    els.ao3Link.textContent = work.sourceUrl ? 'AO3 ↗' : 'Find on AO3 ↗';
     els.backBtn.hidden = false;
     els.libraryView.hidden = true;
     els.readerView.hidden = false;
@@ -1044,12 +1046,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=18',
+    workerUrl: 'kokoro-worker.js?v=19',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=18' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=19' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');

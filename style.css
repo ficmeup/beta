@@ -430,7 +430,6 @@ body.reading .topbar nav a { display: none; }
 }
 .library li.stub .open { text-decoration: none; color: inherit; }
 .library li.stub b { color: var(--dim); }
-.chapter-bar:has(select[hidden]) { display: none; }
 .code {
   white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; padding: 12px;
   border: 1px solid var(--rule); font: 12px/1.5 var(--mono); color: var(--ink);
@@ -450,3 +449,12 @@ html.beta .beta-tag { display: inline-block; }
 .player-toggle svg { width: 20px; height: 20px; transition: transform 250ms ease; }
 .player.mini .player-toggle { top: 8px; }
 .player.mini .player-toggle svg { transform: rotate(180deg); }
+
+.chapter-bar { display: flex; gap: 10px; align-items: center; }
+.chapter-bar select { flex: 1; min-width: 0; }
+.ao3-link {
+  margin-left: auto; white-space: nowrap; text-decoration: none;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--ink); padding: 10px 12px; border: 1px solid var(--rule);
+}
+.ao3-link:hover { border-color: var(--ink); }
