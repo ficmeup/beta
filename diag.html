@@ -24,6 +24,8 @@
     <button class="secondary-btn" data-test="webgpu/fp16">3. Kokoro on graphics chip, half size (160 MB)</button>
     <button class="secondary-btn" data-test="wasm/q8">4. Kokoro on regular processor (90 MB, slow)</button>
     <button class="secondary-btn" data-test="pronounce">5. Pronunciation step only (quick, small download)</button>
+    <button class="secondary-btn" data-test="piper+webgpu/fp16">6. Experiment: Kokoro half size + Piper’s pronunciation</button>
+    <button class="secondary-btn" data-test="piper+wasm/q8">7. Experiment: Kokoro on regular processor + Piper’s pronunciation</button>
   </div>
   <p id="live"></p>
   <div class="row">
@@ -76,7 +78,7 @@
       started = lastAlive = performance.now();
       sessionStorage.setItem(KEY + '-running', running);
       add('Started.');
-      const worker = new Worker('diag-worker.js?v=2', { type: 'module' });
+      const worker = new Worker('diag-worker.js?v=3', { type: 'module' });
       const finish = () => { worker.terminate(); sessionStorage.removeItem(KEY + '-running'); running = null; $('#live').textContent = ''; };
       worker.onerror = e => { add(`Worker crashed: ${e.message || 'no details'}`); finish(); };
       worker.onmessage = ({ data }) => {
@@ -87,8 +89,10 @@
         else if (data.type === 'error') { add(`ERROR: ${data.msg}`); finish(); }
         else if (data.type === 'done') { add('Finished.'); finish(); }
       };
-      const [device, dtype] = running.split('/');
-      worker.postMessage(running === 'gpu' || running === 'pronounce' ? { type: running } : { type: 'kokoro', device, dtype });
+      const viaPiper = running.startsWith('piper+');
+      const [device, dtype] = running.replace('piper+', '').split('/');
+      worker.postMessage(running === 'gpu' || running === 'pronounce' ? { type: running }
+        : { type: viaPiper ? 'viaPiper' : 'kokoro', device, dtype });
     };
   });
 

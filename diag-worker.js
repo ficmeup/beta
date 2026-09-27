@@ -12,6 +12,55 @@ async function timed(label, fn) {
   return result;
 }
 
+// Piper's pronunciation module works on iPhone, and produces the same sounds as Kokoro's.
+const PIPER_PHONEMIZE_JS = 'https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/dist/piper-DeOu3H9E.js';
+const PIPER_PHONEMIZE_BASE = 'https://cdn.jsdelivr.net/npm/@diffusionstudio/piper-wasm@1.0.0/build/piper_phonemize';
+let piperModule = null;
+const piperOut = [];
+async function piperPhonemes(text) {
+  if (!piperModule) {
+    const { createPiperPhonemize } = await import(PIPER_PHONEMIZE_JS);
+    piperModule = await createPiperPhonemize({
+      print: l => piperOut.push(l), printErr: () => {}, noInitialRun: true,
+      locateFile: f => (f.endsWith('.wasm') ? `${PIPER_PHONEMIZE_BASE}.wasm` : f.endsWith('.data') ? `${PIPER_PHONEMIZE_BASE}.data` : f),
+    });
+  }
+  piperOut.length = 0;
+  piperModule.callMain(['-l', 'en-us', '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']);
+  return piperOut.map(l => JSON.parse(l).phonemes.join('')).join(' ')
+    // the same clean-ups Kokoro applies to its own pronunciation output
+    .replace(/([.!?;:,])(?=[^\s.!?;:,])/g, '$1 ')
+    .replace(/kəkˈoːɹoʊ/g, 'kˈoʊkəɹoʊ').replace(/ʲ/g, 'j').replace(/r/g, 'ɹ').replace(/x/g, 'k').replace(/ɬ/g, 'l')
+    .replace(/(?<=[a-zɹː])(?=hˈʌndɹɪd)/g, ' ').replace(/(?<=nˈaɪn)ti(?!ː)/g, 'di')
+    .trim();
+}
+
+async function kokoroViaPiper(device, dtype) {
+  await timed('Loading Piper’s pronunciation module', () => piperPhonemes('Hi.'));
+  const { KokoroTTS } = await timed('Loading the Kokoro library', () => import(KOKORO_URL));
+  let lastPct = -10;
+  const tts = await timed(`Loading the Kokoro model (${device}/${dtype})`, () => KokoroTTS.from_pretrained(MODEL, {
+    dtype, device,
+    progress_callback: p => {
+      if (p.status === 'progress' && /\.onnx$/.test(p.file || '') && p.progress - lastPct >= 10) { lastPct = p.progress; post('progress', { pct: Math.floor(p.progress) }); }
+    },
+  }));
+  const texts = ['Hi.', 'She paused at the door, listening to the rain against the window.', '"Wait," she said. "Are you coming back?" He didn\'t answer.'];
+  for (const text of texts) {
+    const sounds = await piperPhonemes(text);
+    step(`Sounds: ${sounds}`);
+    const started = performance.now();
+    step(`Speaking "${text}"…`);
+    const { input_ids } = tts.tokenizer(sounds, { truncation: true });
+    const audio = await tts.generate_from_ids(input_ids, { voice: 'af_heart' });
+    const ms = performance.now() - started;
+    const seconds = audio.audio.length / audio.sampling_rate;
+    step(`Made ${seconds.toFixed(1)}s of speech in ${(ms / 1000).toFixed(1)}s → ${ms / 1000 < seconds ? 'FASTER than speech ✓' : 'slower than speech ✗'}`);
+    post('audio', { blob: audio.toBlob() });
+  }
+  step('Done. Tap “Play last sound” and listen: does it sound clean or distorted?');
+}
+
 async function pronunciationCheck() {
   const { phonemize } = await timed('Loading the pronunciation module', () => import(PHONEMIZER_URL));
   for (const text of ['Hi.', 'She paused at the door, listening to the rain.']) {
@@ -97,6 +146,7 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.type === 'gpu') await gpuCheck();
     else if (data.type === 'pronounce') await pronunciationCheck();
+    else if (data.type === 'viaPiper') await kokoroViaPiper(data.device, data.dtype);
     else await kokoroCheck(data.device, data.dtype);
     post('done');
   } catch (err) {
