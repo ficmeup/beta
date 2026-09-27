@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 
@@ -50,22 +50,42 @@
   </dl>
 
   <section>
-    <div class="sechead"><h3>01 · Open it</h3></div>
-    <p>Open the link you were sent. You can use it in the browser, or add it to your Home Screen, where it opens like an app and the browser keeps your downloaded voices instead of clearing them after a few weeks.</p>
-    <p><b>Pick one and stay with it.</b> On iPhone and iPad, the Home Screen app and Safari keep separate libraries and separate voice downloads. A story added in one doesn’t appear in the other.</p>
+    <div class="sechead"><h3>01 · Put it on your Home Screen</h3></div>
+    <p>Use Fic Me Up as an app, and add all your fics to it.</p>
     <ul>
-      <li><b>iPhone and iPad, Safari.</b> Share → <b>Add to Home Screen</b>.</li>
-      <li><b>Android, Chrome.</b> Menu (⋮) → <b>Add to Home screen</b>.</li>
+      <li><b>iPhone and iPad.</b> Open <b>ficmeup.github.io</b> in Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>. Open it from the new icon from now on.</li>
+      <li><b>Android.</b> Open it in Chrome, tap the menu (⋮), then <b>Add to Home screen</b>.</li>
       <li><b>Computer.</b> A bookmark is enough.</li>
     </ul>
+    <p>On iPhone, the Home Screen app and Safari keep separate libraries. Stick to the icon, and every fic you add stays in one place, with its voice downloaded once.</p>
   </section>
 
   <section>
-    <div class="sechead"><h3>02 · Add a story</h3></div>
-    <p><b>From a download.</b> On AO3, open the work and tap <b>Download</b> → <b>EPUB</b>. In Fic Me Up, tap <b>Open a file</b> and choose it. HTML and PDF downloads work too; MOBI and AZW3 don’t.</p>
-    <p><b>With the Listen bookmark.</b> A bookmark that sends the AO3 page you’re reading straight into the app. Set it up once, from <b>The Listen bookmark for AO3</b> on the app’s main page. After that: open a work on AO3, tap <b>Entire Work</b> if it has chapters, then tap <b>Listen</b> in your bookmarks.</p>
-    <p>On iPhone and iPad, Listen asks where the story should go. <b>Open in Safari</b> if you use Fic Me Up in Safari. If you use the Home Screen app, choose <b>Copy for the Home Screen app</b>, open the app and tap <b>Add from AO3</b>.</p>
-    <p>The tags block at the top of a work (Rating through Stats) is skipped. Chapter titles are read out as they come up.</p>
+    <div class="sechead"><h3>02 · Add a fic</h3></div>
+    <p><b>From AO3, with the Share button.</b> Open a work in Safari and tap <b>Entire Work</b> if it has chapters. Tap <b>Share</b>, then <b>Add to Fic Me Up</b>. Open the app and tap <b>Add from AO3</b>. The fic opens, ready to play.</p>
+    <p><b>From a download.</b> On AO3, tap <b>Download</b> → <b>EPUB</b>. In the app, tap <b>Open a file</b> and choose it. HTML and PDF work too.</p>
+    <p><b>On a computer.</b> Use the Listen bookmark, set up from <b>The Listen bookmark for AO3</b> on the app’s main page.</p>
+    <p>Share → Add to Fic Me Up reads the page already on your screen. Nothing is fetched from AO3 by the app or the shortcut.</p>
+
+    <details>
+      <summary>Set up Add to Fic Me Up (iPhone, once)</summary>
+      <p>It’s an Apple Shortcut. If someone sent you a link to it, open the link and tap <b>Add Shortcut</b>, then do step 1 only. To make it yourself:</p>
+      <ol>
+        <li>Settings → Apps → Shortcuts → Advanced → turn on <b>Allow Running Scripts</b>.</li>
+        <li>Open the <b>Shortcuts</b> app and tap <b>+</b>.</li>
+        <li>Add the action <b>Run JavaScript on Web Page</b>. Delete the code in it and paste this:
+          <pre class="code" id="scCode">var m = document.querySelector(&#x27;dl.work.meta&#x27;);
+var r = document.querySelector(&#x27;#workskin&#x27;);
+completion(r ? &#x27;FICMEUP1:&#x27; + JSON.stringify({ html: (m ? m.outerHTML : &#x27;&#x27;) + r.outerHTML, url: location.href.split(&#x27;#&#x27;)[0] }) : &#x27;Open a work on AO3 first.&#x27;);</pre>
+          <button class="secondary-btn" id="scCopy" type="button">Copy the code</button>
+        </li>
+        <li>Add the action <b>Copy to Clipboard</b>.</li>
+        <li>Add the action <b>Show Notification</b> with the text: <i>Copied. Open Fic Me Up and tap Add from AO3.</i></li>
+        <li>Tap the name at the top, call it <b>Add to Fic Me Up</b>. Open its settings (ⓘ), turn on <b>Show in Share Sheet</b>, and set it to accept <b>Safari web pages</b> only.</li>
+      </ol>
+      <p>The first time you use it on AO3, iPhone asks whether the shortcut may run on archiveofourown.org. Tap <b>Allow</b>.</p>
+    </details>
+    <p>AO3’s Rating-to-Stats block shows above the fic under <b>Work info</b> and isn’t read aloud. Chapter titles are.</p>
   </section>
 
   <section>
@@ -89,7 +109,8 @@
       <li>Your place is saved. Open the story again and it picks up at the same sentence.</li>
       <li>With a Piper voice, play, pause and skip also work from the lock screen.</li>
       <li>Ten seconds after you press play, the player folds down to one row. Tap it to open it again.</li>
-      <li><b>Text size</b> is in the same panel as speed, 15 to 32 px.</li>
+      <li><b>Text size</b> (15 to 32 px) and <b>font</b> are in the same panel as speed.</li>
+      <li>The chapter list stays at the top while you scroll. Pick a chapter to go straight to it.</li>
       <li>AO3’s Rating-to-Stats block shows above the story under <b>Work info</b>. It isn’t read aloud.</li>
     </ul>
   </section>
@@ -99,8 +120,8 @@
     <ul>
       <li><b>⋯</b> on a story: Play next, Add to queue, add it to a playlist or start a new one.</li>
       <li>When a story ends, the next one in the queue starts after 8 seconds. <b>Stay here</b> stops it.</li>
-      <li>A playlist’s <b>Play all</b> plays it in order.</li>
-      <li><b>Your notes</b>, above each story, save as you type. They’re never read aloud.</li>
+      <li>A playlist’s <b>Play all</b> plays it in order. <b>Share</b> sends it as a link: titles, authors and AO3 addresses only, never the text. Whoever opens it gets the playlist, with links to AO3 for any fic they haven’t added yet.</li>
+      <li><b>Your notes</b>, above each fic, save as you type and are never read aloud. The <b>Notes</b> tab in the library lists every fic you’ve written notes on.</li>
       <li>At the end of a story: <b>Leave kudos on AO3</b>. There is no rating inside the app; kudos and comments on AO3 are what the writer sees.</li>
     </ul>
   </section>
@@ -134,6 +155,15 @@
 </main>
 
 <script>
+  (function () {
+    var copy = document.getElementById('scCopy');
+    if (copy) copy.addEventListener('click', function () {
+      var text = document.getElementById('scCode').textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () {
+        copy.textContent = 'Copied';
+      }, function () { prompt('Copy the code:', text); });
+    });
+  })();
   (function () {
     var buttons = document.querySelectorAll('.roomtog button');
     function apply(room) {

@@ -230,7 +230,12 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
 
 /* ---------- reader ---------- */
 .reader { max-width: 40rem; padding-bottom: calc(var(--player-h) + 40px); }
-.chapter-bar { padding: 18px 0 0; }
+.chapter-bar {
+  position: sticky; top: var(--topbar-h, 52px); z-index: 5;
+  padding: 10px 0; margin: 8px calc(-1 * var(--gut)) 0; padding-inline: var(--gut);
+  background: var(--ground);
+  border-bottom: 1px solid var(--hair);
+}
 .chapter-bar select, .settings select {
   width: 100%; padding: 10px 30px 10px 12px; border: 1px solid var(--rule); border-radius: 0;
   background-color: var(--ground); color: var(--ink); appearance: none; -webkit-appearance: none;
@@ -239,7 +244,7 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
   background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
   background-size: 5px 5px; background-repeat: no-repeat;
 }
-.text { font: var(--text-size, 19px)/1.78 var(--read); overflow-wrap: break-word; }
+.text { font: var(--text-size, 19px)/1.78 var(--story-font, var(--read)); overflow-wrap: break-word; }
 .text h2 {
   margin: 48px 0 20px; padding-bottom: 12px; border-bottom: 1px solid var(--rule);
   font: 400 11px/1.4 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
@@ -405,3 +410,28 @@ body.reading .topbar nav a { display: none; }
 .player.mini .settings-toggle, .player.mini .settings, .player.mini .debug-log { display: none; }
 .player.mini .icon-btn.play { width: 44px; height: 44px; }
 .player.mini .controls { gap: 28px; }
+
+/* ---------- long stories ---------- */
+/* Only paragraphs near the screen are drawn. Jumping from the end of a long work to
+   the top used to make Safari draw all of it at once, next to the voice engine's
+   memory, and iOS closed the page. */
+.text p, .text h2 { content-visibility: auto; contain-intrinsic-size: auto 5em; }
+/* The blurred bars are costly to redraw while scrolling on phones; use solid ones there. */
+@media (hover: none) {
+  .topbar, .player { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .topbar { background: var(--ground); }
+  .player { background: var(--raise); }
+}
+
+/* notes view and shared-playlist entries */
+.note-preview {
+  display: block; font: italic 15px/1.5 var(--read); color: var(--dim);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.library li.stub .open { text-decoration: none; color: inherit; }
+.library li.stub b { color: var(--dim); }
+.chapter-bar:has(select[hidden]) { display: none; }
+.code {
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; padding: 12px;
+  border: 1px solid var(--rule); font: 12px/1.5 var(--mono); color: var(--ink);
+}

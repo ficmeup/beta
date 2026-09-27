@@ -19,6 +19,7 @@
     libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
     libTabs: $('#libTabs'), viewActions: $('#viewActions'),
     sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
+    fontSelect: $('#fontSelect'), chapterBar: $('.chapter-bar'), topbar: $('.topbar'),
     textSmaller: $('#textSmaller'), textLarger: $('#textLarger'), textSizeValue: $('#textSizeValue'),
     downloadPrompt: $('#downloadPrompt'), downloadText: $('#downloadText'),
     promptPreviewBtn: $('#promptPreviewBtn'), downloadBtn: $('#downloadBtn'), playerStatus: $('#playerStatus'), debugLog: $('#debugLog'),
@@ -148,14 +149,83 @@
       added: existing?.added || Date.now(),
     };
     await DB.putWork(work);
+    fillStubs(work);
     return work;
   }
 
-  // The library has three kinds of view: everything, the queue, and each playlist.
+  // The library has four kinds of view: everything, the queue, notes, and each playlist.
+  // A playlist item is a work id, or, for a shared playlist, a stub { t, a, u } for a
+  // work that isn't in this library yet. Adding that work later fills the stub in.
   let libView = 'all';
+  const isStub = x => typeof x === 'object' && x !== null;
+
+  function fillStubs(work) {
+    let changed = false;
+    for (const pl of Lists.data.playlists) {
+      pl.items = pl.items.map(x => {
+        if (isStub(x) && ((x.u && x.u === work.sourceUrl) || (!x.u && x.t === work.title && (x.a || '') === (work.author || '')))) {
+          changed = true;
+          return work.id;
+        }
+        return x;
+      });
+    }
+    if (changed) Lists.save();
+  }
+
+  function b64encode(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = '';
+    bytes.forEach(b => { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64decode(b64) {
+    const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+    return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+  }
+
+  // A shared playlist is a link carrying titles, authors and AO3 addresses only.
+  async function sharePlaylist(pl) {
+    const works = new Map((await DB.allWorks()).map(w => [w.id, w]));
+    const items = pl.items.map(x => {
+      if (isStub(x)) return x;
+      const w = works.get(x);
+      return w && { t: w.title, a: w.author || '', u: w.sourceUrl || '' };
+    }).filter(Boolean);
+    const url = `${location.origin}${location.pathname}#playlist=${b64encode(JSON.stringify({ v: 1, n: pl.name, i: items }))}`;
+    const text = `“${pl.name}”: ${items.length} ${items.length === 1 ? 'work' : 'works'} from AO3, as a Fic Me Up playlist.`;
+    try {
+      if (navigator.share) { await navigator.share({ title: pl.name, text, url }); return; }
+    } catch (err) { if (err.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(url); setStatus('Playlist link copied.'); }
+    catch { prompt('Copy this playlist link:', url); }
+  }
+
+  // Opening a shared playlist link offers to add it.
+  async function receivePlaylist() {
+    const m = location.hash.match(/^#playlist=([\w-]+)/);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname);
+    let data;
+    try { data = JSON.parse(b64decode(m[1])); } catch { return setStatus('That playlist link is damaged. Ask for it again.'); }
+    const works = await DB.allWorks();
+    const items = (data.i || []).map(x => {
+      const w = works.find(w => (x.u && w.sourceUrl === x.u) || (w.title === x.t && (w.author || '') === (x.a || '')));
+      return w ? w.id : { t: String(x.t || 'Untitled'), a: String(x.a || ''), u: /^https:\/\/archiveofourown\.org\/works\/\d+$/.test(x.u) ? x.u : '' };
+    });
+    const have = items.filter(x => !isStub(x)).length;
+    if (!confirm(`Add the shared playlist “${data.n}”? ${items.length} works; ${have} already in your library. The others link to AO3 so you can add them.`)) return;
+    const pl = { id: newId(), name: String(data.n || 'Shared playlist').slice(0, 80), items };
+    Lists.data.playlists.push(pl);
+    Lists.save();
+    libView = `pl:${pl.id}`;
+    renderLibrary();
+  }
 
   function renderTabs(total) {
+    const noteCount = Object.keys(Lists.data.notes).length;
     const tabs = [['all', `All ${total}`], ['queue', `Queue ${Lists.data.queue.length}`],
+      ...(noteCount ? [['notes', `Notes ${noteCount}`]] : []),
       ...Lists.data.playlists.map(pl => [`pl:${pl.id}`, `${pl.name} ${pl.items.length}`])];
     if (!tabs.some(([v]) => v === libView)) libView = 'all';
     els.libTabs.replaceChildren(...tabs.map(([v, label]) => {
@@ -182,7 +252,9 @@
       acts.push(btn('Clear queue', () => { Lists.data.queue = []; Lists.save(); renderLibrary(); }));
     } else if (libView.startsWith('pl:')) {
       const pl = Lists.data.playlists.find(x => `pl:${x.id}` === libView);
-      if (items.length) acts.push(btn('Play all', () => startList(items.map(w => w.id)), true));
+      const ready = items.filter(w => !w.stub);
+      if (ready.length) acts.push(btn('Play all', () => startList(ready.map(w => w.id)), true));
+      acts.push(btn('Share', () => sharePlaylist(pl)));
       acts.push(btn('Rename', () => { const n = prompt('Playlist name', pl.name)?.trim(); if (n) { pl.name = n; Lists.save(); renderLibrary(); } }));
       acts.push(btn('Delete playlist', () => {
         if (!confirm(`Delete the playlist “${pl.name}”? The stories stay in your library.`)) return;
@@ -238,22 +310,52 @@
     els.sheet.showModal();
   }
 
+  // A shared-playlist entry for a work that isn't in this library yet.
+  function stubRow(w, i) {
+    const li = document.createElement('li');
+    li.className = 'stub';
+    const a = document.createElement('a');
+    a.className = 'open';
+    a.href = w.sourceUrl || `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${encodeURIComponent(`"${w.title}" ${w.author || ''}`.trim())}`;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    const b = document.createElement('b');
+    b.textContent = w.title;
+    const meta = document.createElement('span');
+    meta.textContent = [String(i + 1).padStart(2, '0'), w.author, 'Not in your library · add it from AO3'].filter(Boolean).join(' · ');
+    a.append(b, meta);
+    const rm = document.createElement('button');
+    rm.className = 'delete';
+    rm.textContent = '×';
+    rm.setAttribute('aria-label', `Remove ${w.title} from this playlist`);
+    rm.onclick = () => {
+      const pl = Lists.data.playlists.find(x => `pl:${x.id}` === libView);
+      if (pl) { pl.items = pl.items.filter(x => x !== w.stub); Lists.save(); renderLibrary(); }
+    };
+    li.append(a, rm);
+    return li;
+  }
+
   async function renderLibrary() {
     const [works, positions] = await Promise.all([DB.allWorks(), DB.allPositions()]);
     const pos = new Map(positions.map(p => [p.id, p]));
     const byId = new Map(works.map(w => [w.id, w]));
     // drop ids of works that no longer exist
     Lists.data.queue = Lists.data.queue.filter(id => byId.has(id));
-    Lists.data.playlists.forEach(pl => { pl.items = pl.items.filter(id => byId.has(id)); });
+    Lists.data.playlists.forEach(pl => { pl.items = pl.items.filter(x => isStub(x) || byId.has(x)); });
     renderTabs(works.length);
 
     let items;
     if (libView === 'queue') items = Lists.data.queue.map(id => byId.get(id));
-    else if (libView.startsWith('pl:')) items = (Lists.data.playlists.find(x => `pl:${x.id}` === libView)?.items || []).map(id => byId.get(id));
+    else if (libView.startsWith('pl:')) items = (Lists.data.playlists.find(x => `pl:${x.id}` === libView)?.items || [])
+      .map(x => (isStub(x) ? { stub: x, id: null, title: x.t, author: x.a, sourceUrl: x.u, chapters: [] } : byId.get(x)));
+    else if (libView === 'notes') items = works.filter(w => Lists.data.notes[w.id])
+      .sort((a, b) => (pos.get(b.id)?.updated || b.added) - (pos.get(a.id)?.updated || a.added));
     else items = [...works].sort((a, b) => (pos.get(b.id)?.updated || b.added) - (pos.get(a.id)?.updated || a.added));
     renderViewActions(items);
 
     els.library.replaceChildren(...items.map((w, i) => {
+      if (w.stub) return stubRow(w, i);
       const li = document.createElement('li');
       const open = document.createElement('button');
       open.className = 'open';
@@ -271,6 +373,12 @@
         Lists.data.notes[w.id] ? 'notes' : '',
       ].filter(Boolean).join(' · ');
       open.append(title, meta);
+      if (libView === 'notes') {
+        const note = document.createElement('i');
+        note.className = 'note-preview';
+        note.textContent = Lists.data.notes[w.id];
+        open.append(note);
+      }
       open.onclick = () => openWork(w.id);
 
       const more = document.createElement('button');
@@ -283,7 +391,8 @@
     }));
     const empty = !items.length;
     els.emptyLibrary.hidden = !empty;
-    els.emptyLibrary.textContent = libView === 'queue' ? 'The queue is empty. Use ⋯ on a story to add it.'
+    els.emptyLibrary.textContent = libView === 'notes' ? 'No notes yet.'
+      : libView === 'queue' ? 'The queue is empty. Use ⋯ on a story to add it.'
       : libView.startsWith('pl:') ? 'This playlist is empty. Use ⋯ on a story to add it.'
       : 'No stories yet. Open a file from AO3 above.';
     els.libraryCount.textContent = works.length ? `${works.length} ${works.length === 1 ? 'story' : 'stories'}` : '';
@@ -357,7 +466,7 @@
     try { text = await navigator.clipboard.readText(); }
     catch { return setStatus('The clipboard couldn’t be read. Tap Paste when your phone asks, then try again.'); }
     if (!text?.startsWith(CLIP_PREFIX)) {
-      return setStatus('No AO3 work on the clipboard. On AO3, tap Listen, then Copy for the Home Screen app.');
+      return setStatus('No AO3 work on the clipboard. On AO3, tap Share, then Add to Fic Me Up.');
     }
     try {
       const { html, url } = JSON.parse(text.slice(CLIP_PREFIX.length));
@@ -482,8 +591,9 @@
     highlight(true);
   }
 
-  function closeWork() {
+  async function closeWork() {
     stop();
+    await flushPosition();
     clearAudioCache();
     work = null;
     document.body.classList.remove('reading');
@@ -601,14 +711,26 @@
     }
   }
 
-  let saveTimer;
-  function savePosition() {
+  // Positions save a moment after each sentence; anything still waiting is written
+  // straight away when the story closes, the chapter changes or the app goes away.
+  let saveTimer, pendingPosition = null;
+  function savePosition(now = false) {
     if (!work) return;
     const ch = chapterOf(idx);
-    const p = { id: work.id, chapter: ch, sentence: idx - (chapterStarts[ch] || 0), rate: settings.rate, updated: Date.now() };
+    pendingPosition = { id: work.id, chapter: ch, sentence: idx - (chapterStarts[ch] || 0), rate: settings.rate, updated: Date.now() };
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => DB.putPosition(p), 400);
+    if (now) flushPosition();
+    else saveTimer = setTimeout(flushPosition, 400);
   }
+  function flushPosition() {
+    clearTimeout(saveTimer);
+    if (!pendingPosition) return Promise.resolve();
+    const p = pendingPosition;
+    pendingPosition = null;
+    return DB.putPosition(p);
+  }
+  addEventListener('pagehide', flushPosition);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPosition(); });
 
   function jump(i, forceScroll = false) {
     if (i < 0 || i >= sentences.length) return;
@@ -902,12 +1024,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=15',
+    workerUrl: 'kokoro-worker.js?v=16',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=15' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=16' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1310,7 +1432,7 @@
   els.back30Btn.onclick = () => skipSeconds(-30);
   els.fwd30Btn.onclick = () => skipSeconds(30);
   els.playerStatus.onclick = () => { els.debugLog.hidden = !els.debugLog.hidden; };
-  els.chapterSelect.onchange = () => jump(chapterStarts[Number(els.chapterSelect.value)], true);
+  els.chapterSelect.onchange = () => { jump(chapterStarts[Number(els.chapterSelect.value)], true); savePosition(true); };
   els.text.onclick = e => {
     const span = e.target.closest('.s');
     if (!span || window.getSelection()?.toString()) return;
@@ -1345,6 +1467,28 @@
     scheduleMini();
   });
 
+  // Font for the story text. The extra ones load from Google Fonts only when chosen.
+  const FONTS = {
+    newsreader: { stack: "'Newsreader', 'Iowan Old Style', Georgia, serif" },
+    literata: { stack: "'Literata', Georgia, serif", css: 'Literata:ital,opsz,wght@0,7..72,400;1,7..72,400' },
+    atkinson: { stack: "'Atkinson Hyperlegible', system-ui, sans-serif", css: 'Atkinson+Hyperlegible:ital,wght@0,400;1,400' },
+    system: { stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
+  };
+  function applyFont() {
+    const f = FONTS[settings.font] ? settings.font : 'newsreader';
+    if (FONTS[f].css && !document.getElementById(`font-${f}`)) {
+      const link = document.createElement('link');
+      link.id = `font-${f}`;
+      link.rel = 'stylesheet';
+      link.href = `https://fonts.googleapis.com/css2?family=${FONTS[f].css}&display=swap`;
+      document.head.append(link);
+    }
+    document.documentElement.style.setProperty('--story-font', FONTS[f].stack);
+    els.fontSelect.value = f;
+  }
+  els.fontSelect.onchange = () => { settings.font = els.fontSelect.value; saveSettings(); applyFont(); };
+  applyFont();
+
   // Text size, remembered across stories.
   const TEXT_SIZES = [15, 17, 19, 21, 24, 28, 32];
   function applyTextSize() {
@@ -1370,6 +1514,12 @@
     els.settingsPanel.hidden = !open;
     els.settingsToggle.setAttribute('aria-expanded', String(open));
   };
+  // The chapter menu sticks just under the top bar while scrolling.
+  try {
+    new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--topbar-h', `${els.topbar.offsetHeight}px`);
+    }).observe(els.topbar);
+  } catch {}
   // Keep the story clear of the player, whatever height it currently is.
   try {
     new ResizeObserver(() => {
@@ -1431,6 +1581,7 @@
   renderBookmarkletHelp();
   renderLibrary();
   listenForImport();
+  receivePlaylist();
   DB.persistent().then(ok => {
     if (!ok) setStatus('This browser is in private mode, so your library won’t be saved after you close the tab.');
   });
