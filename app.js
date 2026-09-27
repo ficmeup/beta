@@ -882,7 +882,14 @@
     if (idx < sentences.length - 1 && sleepNow(idx + 1)) return goToSleep(idx + 1);
     if (idx < sentences.length - 1) { idx++; speakCurrent(); return; }
     stop();
-    setPlayerStatus(`Finished “${work.title}”.`);
+    setPlayerStatus(`Finished “${work.title}”. `);
+    const tip = document.createElement('a');
+    tip.href = 'https://ko-fi.com/thisandthatspace';
+    tip.target = '_blank';
+    tip.rel = 'noopener';
+    tip.textContent = 'Enjoying Fic Listener? ☕ Support it on Ko-fi';
+    tip.addEventListener('click', (e) => e.stopPropagation());   // don't toggle the debug log
+    els.playerStatus.append(tip);
   }
 
   function play() {

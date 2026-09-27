@@ -175,7 +175,8 @@ details li { margin-bottom: 6px; }
 }
 .player-status:empty { display: none; }
 details ul { padding-left: 1.2rem; }
-.version { text-align: center; margin-top: 32px; }
+.version { text-align: center; margin-top: 32px; line-height: 1.6; }
+.version a, .player-status a { color: var(--accent); font-weight: 600; }
 .player-status { cursor: pointer; }
 .debug-log {
   max-width: 40rem; max-height: 30vh; overflow: auto; margin: 8px auto 0;
