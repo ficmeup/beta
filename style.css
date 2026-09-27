@@ -164,3 +164,14 @@ details li { margin-bottom: 6px; }
   width: 100%; padding: 6px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--bg);
 }
+
+.link-btn {
+  background: none; border: 0; padding: 0 0 0 6px; cursor: pointer;
+  color: var(--accent); font-size: inherit; font-weight: 600;
+}
+.player-status {
+  max-width: 40rem; margin: 6px auto 0;
+  font-size: 0.85rem; color: var(--muted); text-align: center;
+}
+.player-status:empty { display: none; }
+details ul { padding-left: 1.2rem; }

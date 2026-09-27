@@ -12,6 +12,7 @@
     prevBtn: $('#prevBtn'), playBtn: $('#playBtn'), nextBtn: $('#nextBtn'),
     playIcon: $('#playIcon'), pauseIcon: $('#pauseIcon'),
     rate: $('#rate'), rateValue: $('#rateValue'), voiceSelect: $('#voiceSelect'),
+    previewBtn: $('#previewBtn'), playerStatus: $('#playerStatus'),
   };
 
   // ---------- Storage: works and reading positions live in IndexedDB on this device ----------
@@ -252,8 +253,11 @@
 
   async function openWork(id) {
     stop();
+    clearAudioCache();
     work = await DB.getWork(id);
     if (!work) return;
+    updateMediaSession();
+    if (isKokoro()) Kokoro.load().catch(err => setPlayerStatus(err.message));
     const pos = await DB.getPosition(id);
 
     els.chapterSelect.replaceChildren(...work.chapters.map((c, i) => new Option(c.title, i)));
@@ -272,6 +276,7 @@
 
   function closeWork() {
     stop();
+    clearAudioCache();
     work = null;
     els.appTitle.textContent = 'Fic Listener';
     els.backBtn.hidden = true;
@@ -337,7 +342,10 @@
     else { highlight(forceScroll); savePosition(); }
   }
 
-  // ---------- Speech (the device's built-in voices) ----------
+  // ---------- Speech ----------
+  // Two engines: the device's built-in voices (speechSynthesis) and Kokoro, an open
+  // voice model that runs in a worker and plays through an <audio> element.
+  // The <audio> route keeps playing when the phone is locked.
 
   const synth = window.speechSynthesis;
   let playing = false;
@@ -345,61 +353,284 @@
   let utterance = null;   // keep a reference: Chrome drops callbacks for garbage-collected utterances
   let voices = [];
 
+  const KOKORO_PREFIX = 'kokoro:';
+  const KOKORO_VOICES = [
+    ['af_heart', 'Heart', 'American woman'],
+    ['af_bella', 'Bella', 'American woman'],
+    ['af_nicole', 'Nicole', 'American woman, soft'],
+    ['af_aoede', 'Aoede', 'American woman'],
+    ['af_kore', 'Kore', 'American woman'],
+    ['af_sarah', 'Sarah', 'American woman'],
+    ['am_fenrir', 'Fenrir', 'American man'],
+    ['am_michael', 'Michael', 'American man'],
+    ['am_puck', 'Puck', 'American man'],
+    ['bf_emma', 'Emma', 'British woman'],
+    ['bm_george', 'George', 'British man'],
+    ['bm_fable', 'Fable', 'British man'],
+  ];
+  const isKokoro = () => settings.voiceURI.startsWith(KOKORO_PREFIX);
+  const kokoroVoice = () => settings.voiceURI.slice(KOKORO_PREFIX.length);
+
   const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Deranged|Hysterical|Pipe Organ)\b/;
 
-  function voiceScore(v) {
-    const lang = (navigator.language || 'en').toLowerCase();
-    const vl = v.lang.toLowerCase().replace('_', '-');
-    let s = 0;
-    if (vl === lang) s += 4; else if (vl.split('-')[0] === lang.split('-')[0]) s += 3;
-    if (/premium|enhanced|natural|neural/i.test(v.name)) s += 2;
-    if (/google|siri/i.test(v.name)) s += 1;
-    return s;
+  function voiceQuality(v) {
+    const id = `${v.name} ${v.voiceURI}`;
+    if (/premium/i.test(id)) return 'Premium';
+    if (/enhanced/i.test(id)) return 'Enhanced';
+    if (/natural|neural|google/i.test(id)) return 'Natural';
+    return '';
+  }
+
+  const regionNames = (() => {
+    try { return new Intl.DisplayNames([navigator.language || 'en'], { type: 'region' }); } catch { return null; }
+  })();
+
+  function voiceLabel(v) {
+    const name = v.name.replace(/\s*\((premium|enhanced)\)/i, '');
+    const region = v.lang.split(/[-_]/)[1];
+    let place = v.lang;
+    try { if (region && regionNames) place = regionNames.of(region.toUpperCase()); } catch {}
+    return [name, voiceQuality(v), place].filter(Boolean).join(' · ');
   }
 
   function loadVoices() {
-    if (!synth) return;
-    voices = synth.getVoices().filter(v => !NOVELTY.test(v.name));
-    if (!voices.length) return;
-    voices.sort((a, b) => voiceScore(b) - voiceScore(a) || a.name.localeCompare(b.name));
     const lang = (navigator.language || 'en').split('-')[0].toLowerCase();
+    voices = synth ? synth.getVoices().filter(v => !NOVELTY.test(v.name)) : [];
+    const rank = v => ({ Premium: 3, Enhanced: 2, Natural: 1 }[voiceQuality(v)] || 0);
+    voices.sort((a, b) => rank(b) - rank(a) || a.name.localeCompare(b.name));
     const mine = voices.filter(v => v.lang.toLowerCase().startsWith(lang));
-    const others = voices.filter(v => !v.lang.toLowerCase().startsWith(lang));
-    const group = (label, list) => {
+    const group = (label, options) => {
       const g = document.createElement('optgroup');
       g.label = label;
-      g.append(...list.map(v => new Option(`${v.name} (${v.lang})`, v.voiceURI)));
+      g.append(...options);
       return g;
     };
+    const opts = list => list.map(v => new Option(voiceLabel(v), v.voiceURI));
+    const best = mine.filter(v => rank(v) > 0);
+    const rest = mine.filter(v => rank(v) === 0);
+    const others = voices.filter(v => !v.lang.toLowerCase().startsWith(lang));
     els.voiceSelect.replaceChildren(
-      ...(mine.length ? [group('Your language', mine)] : []),
-      ...(others.length ? [group('Other languages', others)] : []),
+      group('Kokoro: most natural (one-time download)',
+        KOKORO_VOICES.map(([id, name, desc]) => new Option(`${name} · ${desc}`, KOKORO_PREFIX + id))),
+      ...(best.length ? [group('Best voices on this device', opts(best))] : []),
+      ...(rest.length ? [group(best.length ? 'Other voices on this device' : 'Voices on this device', opts(rest))] : []),
+      ...(others.length ? [group('Other languages', opts(others))] : []),
     );
-    if (!voices.some(v => v.voiceURI === settings.voiceURI)) settings.voiceURI = voices[0].voiceURI;
+    const known = isKokoro()
+      ? KOKORO_VOICES.some(([id]) => id === kokoroVoice())
+      : voices.some(v => v.voiceURI === settings.voiceURI);
+    if (!known) settings.voiceURI = (mine[0] || voices[0])?.voiceURI || KOKORO_PREFIX + 'af_heart';
     els.voiceSelect.value = settings.voiceURI;
   }
 
   const currentVoice = () => voices.find(v => v.voiceURI === settings.voiceURI) || null;
   const speakable = text => /[\p{L}\p{N}]/u.test(text);
 
-  function speakCurrent() {
-    highlight();
-    savePosition();
-    const my = ++token;
-    const s = sentences[idx];
-    if (!s) return stop();
-    if (!speakable(s.text)) {           // scene breaks like "* * *": short pause, no speech
-      setTimeout(() => { if (my === token && playing) advance(); }, 400);
+  let playerStatusTimer;
+  function setPlayerStatus(msg, clearAfterMs) {
+    els.playerStatus.textContent = msg;
+    clearTimeout(playerStatusTimer);
+    if (clearAfterMs) playerStatusTimer = setTimeout(() => { els.playerStatus.textContent = ''; }, clearAfterMs);
+  }
+
+  // ---------- Kokoro ----------
+
+  const Kokoro = (() => {
+    let worker = null;
+    let readyPromise = null;
+    let device = '';
+    let nextId = 0;
+    let chain = Promise.resolve();   // one generation at a time
+    const pending = new Map();
+    // Fast path uses the graphics chip (WebGPU); otherwise a smaller, slower model.
+    const attempts = navigator.gpu ? [['webgpu', 'fp16'], ['webgpu', 'fp32'], ['wasm', 'q8']] : [['wasm', 'q8']];
+
+    let lastPercent = -1;
+    function onProgress(p) {
+      if (p.status !== 'progress' || !/\.onnx$/.test(p.file || '')) return;
+      const percent = Math.floor(p.progress);
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      setPlayerStatus(`Downloading Kokoro voice… ${percent}% (one time only)`);
+    }
+
+    function tryLoad(dev, dtype) {
+      worker?.terminate();
+      worker = new Worker('kokoro-worker.js', { type: 'module' });
+      return new Promise((resolve, reject) => {
+        worker.onerror = e => reject(new Error(e.message || 'The voice worker failed to start.'));
+        worker.onmessage = ({ data }) => {
+          if (data.type === 'progress') onProgress(data.p);
+          else if (data.type === 'error') reject(new Error(data.message));
+          else if (data.type === 'ready') {
+            worker.onmessage = onResult;
+            resolve();
+          }
+        };
+        worker.postMessage({ type: 'load', device: dev, dtype });
+      });
+    }
+
+    function onResult({ data }) {
+      if (data.type !== 'audio') return;
+      const p = pending.get(data.id);
+      pending.delete(data.id);
+      if (data.error) p?.reject(new Error(data.error)); else p?.resolve(data.blob);
+    }
+
+    function load() {
+      readyPromise ||= (async () => {
+        setPlayerStatus('Starting Kokoro voice…');
+        for (const [dev, dtype] of attempts) {
+          try {
+            await tryLoad(dev, dtype);
+            device = dev;
+            setPlayerStatus(dev === 'wasm'
+              ? 'Kokoro is running in slow mode on this device, so there may be pauses.'
+              : 'Kokoro voice ready.', dev === 'wasm' ? 8000 : 2500);
+            return;
+          } catch (err) {
+            console.warn(`Kokoro (${dev}/${dtype}) failed:`, err);
+          }
+        }
+        worker?.terminate();
+        worker = null;
+        readyPromise = null;
+        throw new Error('Kokoro voices couldn’t start on this device. Try a built-in voice.');
+      })();
+      return readyPromise;
+    }
+
+    function generate(text, voice) {
+      const run = async () => {
+        await load();
+        const id = ++nextId;
+        return new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject });
+          worker.postMessage({ type: 'generate', id, text, voice });
+        });
+      };
+      const result = chain.then(run, run);
+      chain = result.catch(() => {});
+      return result;
+    }
+
+    return { load, generate, get device() { return device; } };
+  })();
+
+  const audio = new Audio();
+  audio.setAttribute('playsinline', '');
+  audio.preload = 'auto';
+
+  // iOS only lets audio start from a tap. Playing a moment of silence during the tap
+  // "unlocks" the element so later sentences can start on their own.
+  const SILENCE = (() => {
+    const n = 2400, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 24000, true); v.setUint32(28, 48000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  })();
+  function unlockAudio() {
+    audio.onended = null;
+    audio.src = SILENCE;
+    audio.play().catch(() => {});
+  }
+
+  // Sentences are generated ahead of the one being read, one at a time.
+  const LOOKAHEAD = 30;
+  const audioCache = new Map();   // `${voice}|${index}` -> { promise, url }
+  let generating = false;
+  let generationWaiters = [];
+
+  function clearAudioCache() {
+    for (const e of audioCache.values()) if (e.url) URL.revokeObjectURL(e.url);
+    audioCache.clear();
+  }
+
+  function pruneAudioCache() {
+    for (const [key, e] of audioCache) {
+      const i = Number(key.split('|')[1]);
+      if (e.url && (i < idx - 2 || i > idx + LOOKAHEAD * 2)) {
+        URL.revokeObjectURL(e.url);
+        audioCache.delete(key);
+      }
+    }
+  }
+
+  function pumpGeneration() {
+    if (generating || !isKokoro() || !work) return;
+    const voice = kokoroVoice();
+    for (let i = idx; i < Math.min(sentences.length, idx + LOOKAHEAD); i++) {
+      if (!speakable(sentences[i].text)) continue;
+      const key = `${voice}|${i}`;
+      if (audioCache.has(key)) continue;
+      generating = true;
+      const entry = {};
+      entry.promise = Kokoro.generate(sentences[i].text, voice).then(blob => (entry.url = URL.createObjectURL(blob)));
+      audioCache.set(key, entry);
+      entry.promise
+        .catch(err => { audioCache.delete(key); entry.error = err; })
+        .finally(() => {
+          generating = false;
+          const waiters = generationWaiters;
+          generationWaiters = [];
+          waiters.forEach(w => w(entry.error));
+          pumpGeneration();
+        });
       return;
     }
-    const u = new SpeechSynthesisUtterance(s.text);
+  }
+
+  async function audioFor(i) {
+    const key = `${kokoroVoice()}|${i}`;
+    while (!audioCache.has(key)) {
+      pumpGeneration();
+      if (audioCache.has(key)) break;
+      const err = await new Promise(r => generationWaiters.push(r));
+      if (err) throw err;
+    }
+    return audioCache.get(key).promise;
+  }
+
+  async function speakKokoro(my) {
+    const key = `${kokoroVoice()}|${idx}`;
+    if (!audioCache.get(key)?.url) setPlayerStatus(els.playerStatus.textContent || 'Preparing voice…');
+    let url;
+    try {
+      url = await audioFor(idx);
+    } catch (err) {
+      if (my !== token) return;
+      stop();
+      return setPlayerStatus(err.message);
+    }
+    if (my !== token || !playing) return;
+    if (/Preparing voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
+    audio.onended = () => { if (my === token && playing) advance(); };
+    audio.src = url;
+    audio.playbackRate = settings.rate;
+    try {
+      await audio.play();
+    } catch (err) {
+      if (my !== token) return;
+      stop();
+      return setPlayerStatus('Tap play to continue.');
+    }
+    pruneAudioCache();
+    pumpGeneration();
+  }
+
+  function speakDevice(my, text) {
+    const u = new SpeechSynthesisUtterance(text);
     const v = currentVoice();
     if (v) { u.voice = v; u.lang = v.lang; }
     u.rate = settings.rate;
     u.onend = () => { if (my === token && playing) advance(); };
     u.onerror = e => {
       if (my !== token || !playing || e.error === 'interrupted' || e.error === 'canceled') return;
-      if (e.error === 'not-allowed') { stop(); return setStatus('Tap play to start listening.'); }
+      if (e.error === 'not-allowed') { stop(); return setPlayerStatus('Tap play to start listening.'); }
       console.warn('Speech error:', e.error);
       advance();
     };
@@ -414,25 +645,47 @@
     }
   }
 
+  function silenceAll() {
+    if (synth && (synth.speaking || synth.pending)) synth.cancel();
+    audio.onended = null;
+    audio.pause();
+  }
+
+  function speakCurrent() {
+    highlight();
+    savePosition();
+    const my = ++token;
+    const s = sentences[idx];
+    if (!s) return stop();
+    silenceAll();
+    if (!speakable(s.text)) {           // scene breaks like "* * *": short pause, no speech
+      setTimeout(() => { if (my === token && playing) advance(); }, 400);
+      return;
+    }
+    if (isKokoro()) speakKokoro(my);
+    else speakDevice(my, s.text);
+  }
+
   function advance() {
     if (idx < sentences.length - 1) { idx++; speakCurrent(); return; }
     stop();
-    setStatus(`Finished “${work.title}”.`);
+    setPlayerStatus(`Finished “${work.title}”.`);
   }
 
   function play() {
-    if (!synth) return alert('This browser can’t read aloud. Try Safari or Chrome.');
     if (!sentences.length) return;
+    if (isKokoro()) unlockAudio();
+    else if (!synth) return setPlayerStatus('This browser can’t use built-in voices. Pick a Kokoro voice.');
     playing = true;
     updatePlayButton();
-    keepScreenOn(true);
+    keepScreenOn(!isKokoro());
     speakCurrent();
   }
 
   function stop() {
     playing = false;
     token++;
-    if (synth && (synth.speaking || synth.pending)) synth.cancel();
+    silenceAll();
     updatePlayButton();
     keepScreenOn(false);
   }
@@ -441,9 +694,51 @@
     els.playIcon.hidden = playing;
     els.pauseIcon.hidden = !playing;
     els.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
   }
 
-  // Built-in voices stop when the phone locks, so keep the screen awake while playing.
+  function updateMediaSession() {
+    if (!('mediaSession' in navigator) || !work) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: work.title, artist: work.author || 'Fic Listener' });
+    } catch {}
+  }
+  if ('mediaSession' in navigator) {
+    const handlers = {
+      play: () => play(),
+      pause: () => stop(),
+      previoustrack: () => jump(idx - 1),
+      nexttrack: () => jump(idx + 1),
+    };
+    for (const [action, fn] of Object.entries(handlers)) {
+      try { navigator.mediaSession.setActionHandler(action, fn); } catch {}
+    }
+  }
+
+  async function preview() {
+    const text = 'Hi! This is how I sound reading your stories.';
+    if (playing) stop();
+    if (isKokoro()) {
+      unlockAudio();
+      if (!Kokoro.device) setPlayerStatus('Preparing voice…');
+      try {
+        const blob = await Kokoro.generate(text, kokoroVoice());
+        if (playing) return;
+        audio.onended = null;
+        audio.src = URL.createObjectURL(blob);
+        audio.playbackRate = settings.rate;
+        await audio.play();
+        if (/Preparing voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
+      } catch (err) {
+        setPlayerStatus(err.message);
+      }
+    } else if (synth) {
+      silenceAll();
+      speakDevice(++token, text);
+    }
+  }
+
+  // Built-in voices stop when the phone locks, so keep the screen awake while they play.
   let wakeLock = null;
   async function keepScreenOn(on) {
     try {
@@ -457,7 +752,7 @@
     } catch { wakeLock = null; }
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && playing) keepScreenOn(true);
+    if (document.visibilityState === 'visible' && playing && !isKokoro()) keepScreenOn(true);
   });
 
   // ---------- Wiring ----------
@@ -466,6 +761,7 @@
   els.playBtn.onclick = () => (playing ? stop() : play());
   els.prevBtn.onclick = () => jump(idx - 1);
   els.nextBtn.onclick = () => jump(idx + 1);
+  els.previewBtn.onclick = preview;
   els.chapterSelect.onchange = () => jump(chapterStarts[Number(els.chapterSelect.value)], true);
   els.text.onclick = e => {
     const span = e.target.closest('.s');
@@ -479,13 +775,20 @@
   els.rate.oninput = () => {
     settings.rate = Number(els.rate.value);
     els.rateValue.textContent = `${settings.rate.toFixed(1)}×`;
+    audio.playbackRate = settings.rate;   // Kokoro audio changes speed immediately
     saveSettings();
   };
-  els.rate.onchange = () => { if (playing) speakCurrent(); };
+  els.rate.onchange = () => { if (playing && !isKokoro()) speakCurrent(); };
   els.voiceSelect.onchange = () => {
     settings.voiceURI = els.voiceSelect.value;
     saveSettings();
-    if (playing) speakCurrent();
+    clearAudioCache();
+    if (isKokoro()) Kokoro.load().catch(err => setPlayerStatus(err.message));
+    if (playing) {
+      keepScreenOn(!isKokoro());
+      if (isKokoro()) unlockAudio();
+      speakCurrent();
+    }
   };
 
   document.addEventListener('keydown', e => {
@@ -495,8 +798,8 @@
     else if (e.key === 'ArrowLeft') jump(idx - 1);
   });
 
+  loadVoices();
   if (synth) {
-    loadVoices();
     synth.addEventListener?.('voiceschanged', loadVoices);
     // Safari sometimes loads voices late without firing the event.
     let tries = 0;

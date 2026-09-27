@@ -39,6 +39,17 @@
       <div id="bookmarkletBody"></div>
     </details>
 
+    <details>
+      <summary>Voices</summary>
+      <p><b>Kokoro voices</b> (listed first) sound the most natural and keep playing with the screen locked. The first time you choose one, it downloads about 160 MB (once). Adding this app to your Home Screen keeps that download from being cleared.</p>
+      <p><b>Built-in voices:</b> your phone can download much better versions of its own voices:</p>
+      <ul>
+        <li><b>iPhone/iPad:</b> Settings → Accessibility → Spoken Content → Voices → English. Pick a voice and download one marked <b>Premium</b> or <b>Enhanced</b> (e.g. Ava, Zoe, Evan). Then close and reopen this app.</li>
+        <li><b>Mac:</b> System Settings → Accessibility → Spoken Content → System Voice → Manage Voices.</li>
+      </ul>
+      <p class="hint">Apple doesn’t let websites use Siri voices, so those won’t appear in the list.</p>
+    </details>
+
     <p id="status" role="status"></p>
   </section>
 
@@ -75,10 +86,11 @@
       <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
     </label>
     <label class="voice">
-      <span>Voice</span>
+      <span>Voice <button type="button" id="previewBtn" class="link-btn">Preview</button></span>
       <select id="voiceSelect"></select>
     </label>
   </div>
+  <p id="playerStatus" class="player-status" role="status"></p>
 </footer>
 
 </body>
