@@ -82,23 +82,25 @@ async function loadVoice(id, onProgress) {
   return voice;
 }
 
-function wav16(chunks, rate) {
-  const length = chunks.reduce((n, c) => n + c.length, 0);
-  const buf = new ArrayBuffer(44 + length * 2);
-  const v = new DataView(buf);
-  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  str(0, 'RIFF'); v.setUint32(4, 36 + length * 2, true); str(8, 'WAVEfmt ');
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  str(36, 'data'); v.setUint32(40, length * 2, true);
-  let o = 44;
-  for (const c of chunks) {
-    for (let i = 0; i < c.length; i++, o += 2) {
-      const s = Math.max(-1, Math.min(1, c[i]));
-      v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    }
+// Sentences are joined into longer stretches by the app, so each one comes back as
+// raw 16-bit samples with the model's own leading and trailing silence cut off.
+// The app then puts in pauses of its own, which follow the playback speed.
+function trimmedPcm(chunks, rate) {
+  const all = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+  let o = 0;
+  for (const c of chunks) { all.set(c, o); o += c.length; }
+  const loud = 0.012;
+  let a = 0, b = all.length - 1;
+  while (a < b && Math.abs(all[a]) < loud) a++;
+  while (b > a && Math.abs(all[b]) < loud) b--;
+  a = Math.max(0, a - Math.round(rate * 0.015));
+  b = Math.min(all.length - 1, b + Math.round(rate * 0.04));
+  const pcm = new Int16Array(Math.max(0, b - a + 1));
+  for (let i = 0; i < pcm.length; i++) {
+    const v = Math.max(-1, Math.min(1, all[a + i]));
+    pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
   }
-  return new Blob([buf], { type: 'audio/wav' });
+  return pcm;
 }
 
 async function speak(text) {
@@ -123,8 +125,8 @@ async function speak(text) {
     const { output } = await session.run(feeds);
     chunks.push(output.data);
   }
-  const samples = chunks.reduce((n, c) => n + c.length, 0);
-  return { blob: wav16(chunks, rate), seconds: samples / rate };
+  const pcm = trimmedPcm(chunks, rate);
+  return { pcm, rate, seconds: pcm.length / rate };
 }
 
 self.onmessage = async ({ data }) => {
@@ -137,8 +139,8 @@ self.onmessage = async ({ data }) => {
     } else if (data.type === 'generate') {
       const started = performance.now();
       await loadVoice(data.voice);
-      const { blob, seconds } = await speak(data.text);
-      self.postMessage({ type: 'audio', id, blob, seconds, ms: Math.round(performance.now() - started) });
+      const { pcm, rate, seconds } = await speak(data.text);
+      self.postMessage({ type: 'audio', id, pcm, rate, seconds, ms: Math.round(performance.now() - started) }, [pcm.buffer]);
     }
   } catch (err) {
     self.postMessage({ type: 'error', id, message: String(err?.message || err) });

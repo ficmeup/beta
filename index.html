@@ -28,10 +28,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=19" defer></script>
-<script src="app.js?v=19" defer></script>
+<script src="parsers.js?v=20" defer></script>
+<script src="app.js?v=20" defer></script>
 </head>
 <body>
 <div id="field" aria-hidden="true"></div>
@@ -102,7 +102,7 @@
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 19 · <a href="guide.html">Guide</a></span>
+    <span>Version 20 · <a href="guide.html">Guide</a></span>
   </footer>
 </main>
 
@@ -167,17 +167,17 @@
         <option value="system">This device’s font</option>
       </select>
     </label>
-    <label class="sleep">
+    <div class="sleep">
       <span>Sleep timer <b id="sleepLeft"></b></span>
-      <select id="sleepSelect">
-        <option value="off">Off</option>
-        <option value="15">15 minutes</option>
-        <option value="30">30 minutes</option>
-        <option value="45">45 minutes</option>
-        <option value="60">60 minutes</option>
-        <option value="chapter">End of chapter</option>
-      </select>
-    </label>
+      <div id="sleepChips" class="chips">
+        <button type="button" class="fbtn" data-sleep="off" aria-pressed="true">Off</button>
+        <button type="button" class="fbtn" data-sleep="15" aria-pressed="false">15</button>
+        <button type="button" class="fbtn" data-sleep="30" aria-pressed="false">30</button>
+        <button type="button" class="fbtn" data-sleep="45" aria-pressed="false">45</button>
+        <button type="button" class="fbtn" data-sleep="60" aria-pressed="false">60</button>
+        <button type="button" class="fbtn" data-sleep="chapter" aria-pressed="false">Chapter</button>
+      </div>
+    </div>
   </div>
   <div id="downloadPrompt" class="download-prompt" hidden>
     <p id="downloadText"></p>

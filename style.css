@@ -458,3 +458,15 @@ html.beta .beta-tag { display: inline-block; }
   color: var(--ink); padding: 10px 12px; border: 1px solid var(--rule);
 }
 .ao3-link:hover { border-color: var(--ink); }
+
+/* sleep timer buttons */
+.settings .sleep { display: grid; gap: 6px; flex: 1 1 100%; }
+.settings .sleep > span {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--faint);
+}
+.settings .sleep > span b { color: var(--ink); font-weight: 400; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips .fbtn { flex: 1 0 auto; padding: 9px 8px; }
+
+/* phones: the colour field stays still (it kept the graphics chip busy the whole time) */
+@media (hover: none) { #field { animation: none; } }

@@ -20,7 +20,7 @@
     playIcon: $('#playIcon'), pauseIcon: $('#pauseIcon'),
     rate: $('#rate'), rateValue: $('#rateValue'), voiceSelect: $('#voiceSelect'),
     previewBtn: $('#previewBtn'), back30Btn: $('#back30Btn'), fwd30Btn: $('#fwd30Btn'),
-    sleepSelect: $('#sleepSelect'), sleepLeft: $('#sleepLeft'),
+    sleepChips: $('#sleepChips'), sleepLeft: $('#sleepLeft'),
     settingsToggle: $('#settingsToggle'), settingsPanel: $('#settings'),
     summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
     libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
@@ -975,7 +975,7 @@
           slowWarned = true;
           setPlayerStatus(`${name} is slower than speech on this device, so expect pauses.${hint}`, 10000);
         }
-        p.resolve(data.blob);
+        p.resolve({ pcm: data.pcm, rate: data.rate });
       }
     }
 
@@ -1046,12 +1046,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=19',
+    workerUrl: 'kokoro-worker.js?v=20',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=19' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=20' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1075,38 +1075,58 @@
     audio.play().then(() => dbg('audio unlocked'), err => { if (err.name !== 'AbortError') dbg(`unlock refused: ${err.name}`); });
   }
 
-  // Sentences are generated ahead of the one being read, one at a time.
-  const LOOKAHEAD = 40;   // sentences, roughly 2–3 minutes of speech
-  const audioCache = new Map();   // `${voice}|${index}` -> { promise, url }
-  let generating = false;
+  // ---------- Buffering ----------
+  // Sentences are made one at a time, ahead of the one being read. The buffer fills
+  // quickly to about 2 minutes, then carries on in gentle bursts up to about 10, so a
+  // locked phone (where iOS may pause this work) still has plenty to play, and the
+  // phone isn't running flat out the whole time it's in your hand.
+  const FAST_AHEAD_S = 120;      // fill this much as fast as possible
+  const MAX_AHEAD_S = 600;       // then keep going, gently, up to this
+  const REST_MS = 350;           // pause between sentences once past the fast part
+  const MAX_AHEAD_SENTENCES = 400;
+  const audioCache = new Map();  // `${voice}|${index}` -> { promise, data: { pcm, rate } }
+  let generating = false, restTimer = null;
   let generationWaiters = [];
 
   function clearAudioCache() {
-    for (const e of audioCache.values()) if (e.url) URL.revokeObjectURL(e.url);
     audioCache.clear();
+    clearTimeout(restTimer);
   }
 
   function pruneAudioCache() {
-    for (const [key, e] of audioCache) {
+    for (const key of audioCache.keys()) {
       const i = Number(key.split('|')[1]);
-      if (e.url && (i < idx - 2 || i > idx + LOOKAHEAD * 2)) {
-        URL.revokeObjectURL(e.url);
-        audioCache.delete(key);
-      }
+      if (i < idx - 2 || i > idx + MAX_AHEAD_SENTENCES + 20) audioCache.delete(key);
     }
+  }
+
+  const clipSeconds = d => d.pcm.length / d.rate;
+
+  // Seconds of speech already made, counting forward from the sentence being read.
+  function secondsAhead() {
+    let total = 0;
+    for (let i = idx; i < sentences.length && i < idx + MAX_AHEAD_SENTENCES; i++) {
+      if (!speakable(sentences[i].text)) continue;
+      const d = audioCache.get(`${settings.voiceURI}|${i}`)?.data;
+      if (!d) break;
+      total += clipSeconds(d);
+    }
+    return total;
   }
 
   function pumpGeneration() {
     const choice = downloadableChoice();
-    if (generating || !choice || !work) return;
+    if (generating || restTimer || !choice || !work) return;
+    const ahead = secondsAhead();
+    if (ahead >= MAX_AHEAD_S) return;
     const voice = settings.voiceURI;
-    for (let i = idx; i < Math.min(sentences.length, idx + LOOKAHEAD); i++) {
+    for (let i = idx; i < Math.min(sentences.length, idx + MAX_AHEAD_SENTENCES); i++) {
       if (!speakable(sentences[i].text)) continue;
       const key = `${voice}|${i}`;
       if (audioCache.has(key)) continue;
       generating = true;
       const entry = {};
-      entry.promise = choice.engine.generate(sentences[i].text, choice.voice).then(blob => (entry.url = URL.createObjectURL(blob)));
+      entry.promise = choice.engine.generate(sentences[i].text, choice.voice).then(d => (entry.data = d));
       audioCache.set(key, entry);
       entry.promise
         .catch(err => { audioCache.delete(key); entry.error = err; })
@@ -1115,15 +1135,25 @@
           const waiters = generationWaiters;
           generationWaiters = [];
           waiters.forEach(w => w(entry.error));
-          pumpGeneration();
+          // Past the fast part, rest between sentences while the screen is on.
+          if (document.visibilityState === 'visible' && secondsAhead() > FAST_AHEAD_S) {
+            restTimer = setTimeout(() => { restTimer = null; pumpGeneration(); }, REST_MS);
+          } else {
+            pumpGeneration();
+          }
         });
       return;
     }
   }
+  document.addEventListener('visibilitychange', () => {
+    // Hidden or locked: skip the rests and make as much as iOS allows.
+    if (document.visibilityState === 'hidden' && restTimer) { clearTimeout(restTimer); restTimer = null; pumpGeneration(); }
+  });
 
   async function audioFor(i) {
     const key = `${settings.voiceURI}|${i}`;
     while (!audioCache.has(key)) {
+      clearTimeout(restTimer); restTimer = null;   // the one being waited for comes first
       pumpGeneration();
       if (audioCache.has(key)) break;
       const err = await new Promise(r => generationWaiters.push(r));
@@ -1132,27 +1162,115 @@
     return audioCache.get(key).promise;
   }
 
+  // ---------- Stitched playback ----------
+  // Sentences that are ready are joined into one stretch of up to a minute, with short
+  // pauses between them. The phone then starts a new clip about once a minute rather
+  // than every sentence, which removes the gaps and keeps a locked phone playing.
+  // The pauses are part of the audio, so they speed up with the playback speed.
+  const PAUSE = { sentence: 0.16, paragraph: 0.42, heading: 0.6, sceneBreak: 0.8 };
+  const MAX_STRETCH_S = 60, MAX_STRETCH_SENTENCES = 40;
+  let stretch = null;          // { my, map: [{ i, start, end }], last, url }
+
+  function pauseAfter(i) {
+    const cur = sentences[i], next = sentences[i + 1];
+    if (!next) return 0;
+    if (cur.el.parentElement.tagName === 'H2') return PAUSE.heading;
+    if (cur.el.parentElement !== next.el.parentElement) return PAUSE.paragraph;
+    return PAUSE.sentence;
+  }
+
+  function wavFromParts(parts, rate) {
+    const length = parts.reduce((n, p) => n + p.length, 0);
+    const buf = new ArrayBuffer(44 + length * 2);
+    const v = new DataView(buf);
+    const str = (o, t) => { for (let k = 0; k < t.length; k++) v.setUint8(o + k, t.charCodeAt(k)); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + length * 2, true); str(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, length * 2, true);
+    const out = new Int16Array(buf, 44);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  // Joins the ready sentences from idx onwards. Waits only for the first one.
+  async function buildStretch() {
+    let first = idx;
+    while (first < sentences.length && !speakable(sentences[first].text)) first++;
+    if (first >= sentences.length) return null;
+    await audioFor(first);
+    const parts = [], map = [];
+    let t = 0, rate = 0, last = idx;
+    const silence = s => new Int16Array(Math.round(s * rate));
+    for (let i = idx; i < sentences.length; i++) {
+      if (i > idx && (t >= MAX_STRETCH_S || i - idx >= MAX_STRETCH_SENTENCES)) break;
+      if (i > idx && sleep.mode === 'chapter' && chapterOf(i) !== chapterOf(idx)) break;
+      const sent = sentences[i];
+      if (!speakable(sent.text)) {
+        if (!rate) { map.push({ i, start: t, end: t }); last = i; continue; }
+        parts.push(silence(PAUSE.sceneBreak));
+        map.push({ i, start: t, end: t + PAUSE.sceneBreak });
+        t += PAUSE.sceneBreak; last = i;
+        continue;
+      }
+      const d = audioCache.get(`${settings.voiceURI}|${i}`)?.data;
+      if (!d || (rate && d.rate !== rate)) break;
+      rate = d.rate;
+      const len = clipSeconds(d);
+      parts.push(d.pcm);
+      map.push({ i, start: t, end: t + len });
+      t += len; last = i;
+      const gap = pauseAfter(i);
+      if (gap) { parts.push(silence(gap)); t += gap; }
+    }
+    if (!rate) return null;
+    return { url: URL.createObjectURL(wavFromParts(parts, rate)), map, last, seconds: t };
+  }
+
   async function speakDownloaded(my) {
     const key = `${settings.voiceURI}|${idx}`;
-    const ready = !!audioCache.get(key)?.url;
-    if (!ready) {
+    if (!audioCache.get(key)?.data) {
       keepAudioAlive();
       if (!/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
     }
-    let url;
+    let built;
     try {
-      url = await audioFor(idx);
+      built = await buildStretch();
     } catch (err) {
       if (my !== token) return;
       stop();
       dbg(`could not make audio: ${err.message}`);
       return setPlayerStatus(err.message);
     }
-    if (my !== token || !playing) return;
-    audio.onended = () => { if (my === token && playing) advance(); };
+    if (my !== token || !playing) { if (built) URL.revokeObjectURL(built.url); return; }
+    if (!built) { idx = sentences.length - 1; return advance(); }
+    const previous = stretch;
+    stretch = { my, ...built };
+    dbg(`playing ${built.map.length} sentences as one ${built.seconds.toFixed(0)}s stretch`);
+
+    // Follow along: move the highlight as each sentence in the stretch comes up.
+    audio.ontimeupdate = () => {
+      if (my !== token || !playing || audio.loop) return;
+      const now = audio.currentTime;
+      const at = stretch.map.find(m => now >= m.start && now < m.end + 0.05) || null;
+      if (!at || at.i === idx) return;
+      if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) return goToSleep(at.i);
+      idx = at.i;
+      highlight();
+      savePosition();
+      pruneAudioCache();
+      pumpGeneration();
+    };
+    audio.onended = () => {
+      if (my !== token || !playing) return;
+      idx = stretch.last;
+      advance();
+    };
     audio.loop = false;
-    audio.src = url;
+    audio.src = built.url;
     audio.playbackRate = settings.rate;
+    if (previous) URL.revokeObjectURL(previous.url);
     // If nothing starts within a few seconds, say so instead of sitting silently.
     const watchdog = setTimeout(() => {
       if (my !== token || !playing || !audio.paused) return;
@@ -1229,13 +1347,12 @@
     const downloaded = isDownloadable();
     if (downloaded) { if (synth?.speaking) synth.cancel(); }
     else silenceAll();
+    if (downloaded) return speakDownloaded(my);   // stretches handle scene breaks themselves
     if (!speakable(s.text)) {           // scene breaks like "* * *": short pause, no speech
-      if (downloaded) keepAudioAlive();
       setTimeout(() => { if (my === token && playing) advance(); }, 400);
       return;
     }
-    if (isDownloadable()) speakDownloaded(my);
-    else speakDevice(my, s.text);
+    speakDevice(my, s.text);
   }
 
   // ---------- Sleep timer ----------
@@ -1253,13 +1370,25 @@
   }
   setInterval(updateSleepLabel, 15000);
 
-  els.sleepSelect.onchange = () => {
-    const v = els.sleepSelect.value;
+  // Buttons rather than a dropdown: the dropdown didn't respond on some iPhones.
+  function setSleepChips(v) {
+    els.sleepChips.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.sleep === v)));
+  }
+  els.sleepChips.addEventListener('click', e => {
+    const b = e.target.closest('button[data-sleep]');
+    if (!b) return;
+    const v = b.dataset.sleep;
     sleep = v === 'off' ? { mode: 'off' }
       : v === 'chapter' ? { mode: 'chapter' }
       : { mode: 'time', endsAt: Date.now() + Number(v) * 60000 };
+    setSleepChips(v);
     updateSleepLabel();
-  };
+    // a chapter stretch may run past the chapter end; rebuild it so it stops there
+    if (playing && isDownloadable() && v === 'chapter') speakCurrent();
+    setPlayerStatus(v === 'off' ? 'Sleep timer off.'
+      : v === 'chapter' ? 'Sleep timer: stops at the end of this chapter.'
+      : `Sleep timer: stops in ${v} minutes, at the end of a sentence.`, 4000);
+  });
 
   function sleepNow(nextIdx) {
     if (sleep.mode === 'time') return Date.now() >= sleep.endsAt;
@@ -1270,7 +1399,7 @@
   function goToSleep(nextIdx) {
     if (sleep.mode === 'chapter') idx = nextIdx;   // resume at the start of the next chapter
     sleep = { mode: 'off' };
-    els.sleepSelect.value = 'off';
+    setSleepChips('off');
     updateSleepLabel();
     stop();
     highlight();
@@ -1335,7 +1464,7 @@
     if (!sentences.length) return;
     if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) {   // timer ran out while paused
       sleep = { mode: 'off' };
-      els.sleepSelect.value = 'off';
+      setSleepChips('off');
       updateSleepLabel();
     }
     if (!isDownloaded()) {

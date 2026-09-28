@@ -5,21 +5,21 @@ import { KokoroTTS } from 'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kok
 const MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 let tts = null;
 
-// Kokoro's own WAV output uses 32-bit float samples, which not every browser plays.
-// 16-bit PCM plays everywhere.
-function wav16(samples, rate) {
-  const buf = new ArrayBuffer(44 + samples.length * 2);
-  const v = new DataView(buf);
-  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVEfmt ');
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  str(36, 'data'); v.setUint32(40, samples.length * 2, true);
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+// The app joins sentences into longer stretches, so each comes back as raw 16-bit
+// samples with leading and trailing silence cut off; the app adds its own pauses.
+function trimmedPcm(samples, rate) {
+  const loud = 0.012;
+  let a = 0, b = samples.length - 1;
+  while (a < b && Math.abs(samples[a]) < loud) a++;
+  while (b > a && Math.abs(samples[b]) < loud) b--;
+  a = Math.max(0, a - Math.round(rate * 0.015));
+  b = Math.min(samples.length - 1, b + Math.round(rate * 0.04));
+  const pcm = new Int16Array(Math.max(0, b - a + 1));
+  for (let i = 0; i < pcm.length; i++) {
+    const v = Math.max(-1, Math.min(1, samples[a + i]));
+    pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
   }
-  return new Blob([buf], { type: 'audio/wav' });
+  return pcm;
 }
 
 self.onmessage = async ({ data }) => {
@@ -37,12 +37,9 @@ self.onmessage = async ({ data }) => {
     } else if (data.type === 'generate') {
       const started = performance.now();
       const audio = await tts.generate(data.text, { voice: data.voice });
-      self.postMessage({
-        type: 'audio', id,
-        blob: wav16(audio.audio, audio.sampling_rate),
-        ms: Math.round(performance.now() - started),
-        seconds: audio.audio.length / audio.sampling_rate,
-      });
+      const rate = audio.sampling_rate;
+      const pcm = trimmedPcm(audio.audio, rate);
+      self.postMessage({ type: 'audio', id, pcm, rate, seconds: pcm.length / rate, ms: Math.round(performance.now() - started) }, [pcm.buffer]);
     }
   } catch (err) {
     self.postMessage({ type: 'error', id, message: String(err?.message || err) });
