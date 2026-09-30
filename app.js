@@ -485,9 +485,25 @@
   //   anything else long        plain text, added as a story
   const FILE_PREFIX = 'FICMEUPF1:';
   async function addFromClipboard() {
-    let text;
-    try { text = await navigator.clipboard.readText(); }
-    catch { return setStatus('The clipboard couldn’t be read. When your phone shows a Paste button, tap it.'); }
+    // read() shows what kind of thing was copied; websites only get text and images,
+    // so a copied file (a book from Books, a PDF from Files) arrives as nothing.
+    let text = '', html = '', kinds = [];
+    try {
+      if (navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        kinds = items.flatMap(i => [...i.types]);
+        const item = items.find(i => i.types.includes('text/plain')) || items.find(i => i.types.includes('text/html'));
+        if (item) {
+          const type = item.types.includes('text/plain') ? 'text/plain' : 'text/html';
+          const raw = await (await item.getType(type)).text();
+          if (type === 'text/plain') text = raw; else html = raw;
+        }
+      } else {
+        text = await navigator.clipboard.readText();
+      }
+    } catch {
+      return setStatus('The clipboard couldn’t be read. When your phone shows a Paste button, tap it.');
+    }
     text = (text || '').trim();
     try {
       let parsed, url = '';
@@ -496,6 +512,9 @@
         url = data.url || '';
         setStatus('Reading the page…');
         parsed = await Parsers.fromPage(new DOMParser().parseFromString(String(data.html), 'text/html'), url);
+      } else if (!text && html) {
+        // formatted text only: read it like a web page, keeping paragraphs and headings
+        parsed = await Parsers.fromPage(new DOMParser().parseFromString(html, 'text/html'), '', 'Pasted text');
       } else if (text.startsWith(FILE_PREFIX)) {
         const rest = text.slice(FILE_PREFIX.length);
         const cut = rest.lastIndexOf(':');
@@ -513,7 +532,8 @@
         const short = firstLine.length <= 80;
         parsed = Parsers.fromText(short ? lines.slice(at + 1).join('\n') : text, short ? firstLine : 'Pasted text');
       } else {
-        return setStatus('Nothing to paste yet. Copy the story first: in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy. Then tap Paste.');
+        if (kinds.some(k => k.startsWith('image/'))) return setStatus('That’s a picture, not text. Copy the story’s text instead.');
+        return setStatus('No text to paste. A copied book or file can’t be pasted into a web app: in Books or Files, tap Share → Save to Files, then use Open a file here. For a web page, copy its text: in Safari, aA → Show Reader, press and hold, Select All, Copy.');
       }
       const work = await addWork(parsed, url);
       setStatus(`Added “${work.title}”.`);
@@ -1095,12 +1115,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=22',
+    workerUrl: 'kokoro-worker.js?v=23',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=22' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=23' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
