@@ -285,8 +285,8 @@
 
   // Shares the fic's AO3 page (or an AO3 search for it), never the text.
   async function shareWork(w) {
-    const url = ao3Link(w);
-    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}, on AO3`;
+    const url = isAo3(w) ? ao3Link(w) : w.sourceUrl;
+    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}${isAo3(w) ? ', on AO3' : ''}`;
     try {
       if (navigator.share) { await navigator.share({ title: w.title, text, url }); return; }
     } catch (err) { if (err.name === 'AbortError') return; }
@@ -318,8 +318,9 @@
       Lists.data.playlists.push({ id: newId(), name, items: [w.id] });
       Lists.save(); renderLibrary(); setStatus(`Made “${name}” with “${w.title}” in it.`);
     });
-    add('Share', () => shareWork(w));
-    add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
+    if (isAo3(w) || w.sourceUrl) add('Share', () => shareWork(w));
+    if (isAo3(w)) add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
+    else if (w.sourceUrl) add('Open the original page', () => window.open(w.sourceUrl, '_blank', 'noopener'));
     add('Remove from library', async () => {
       if (!confirm(`Remove “${w.title}” from your library? Your notes on it go too.`)) return;
       await DB.deleteWork(w.id);
@@ -449,7 +450,6 @@
   // It runs in your own AO3 tab, copies the text already on screen and hands it to this
   // app. It makes no requests to AO3, so from AO3's side it's just you reading the page.
 
-  const AO3_ORIGIN = /^https:\/\/(www\.)?(archiveofourown\.(org|com|net)|ao3\.org)$/;
 
   // The Listen bookmark. It runs in the reader's own AO3 tab and reads the page already
   // on screen; it never contacts AO3. On iPhone and iPad it offers a second route,
@@ -460,10 +460,9 @@
     const app = location.origin + location.pathname;
     const src = `(()=>{const A=${JSON.stringify(app)},O=${JSON.stringify(location.origin)},P=${JSON.stringify(CLIP_PREFIX)};`
       + `const r=document.querySelector('#workskin');`
-      + `if(!r){alert('Open a work on AO3 first, then tap Listen.');return}`
-      + `if(document.querySelector('a[href*="view_full_work=true"]')&&!confirm('Only this chapter is on screen. OK: listen to this chapter only. Cancel: tap Entire Work first, then Listen again.'))return;`
+      + `if(r&&document.querySelector('a[href*="view_full_work=true"]')&&!confirm('Only this chapter is on screen. OK: listen to this chapter only. Cancel: tap Entire Work first, then Listen again.'))return;`
       + `const m=document.querySelector('dl.work.meta');`
-      + `const d={type:'fic-listener-import',html:(m?m.outerHTML:'')+r.outerHTML,url:location.href.split('#')[0]};`
+      + `const d={type:'fic-listener-import',html:r?(m?m.outerHTML:'')+r.outerHTML:document.documentElement.outerHTML,url:location.href.split('#')[0]};`
       + `const go=()=>{const w=window.open(A+'#import','_blank');if(!w){alert('Allow pop-ups for AO3, then tap Listen again.');return}`
       + `const h=e=>{if(e.source===w&&e.data==='fic-listener-ready'){w.postMessage(d,O);removeEventListener('message',h)}};addEventListener('message',h)};`
       + `const ios=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Mac/.test(navigator.platform));`
@@ -475,22 +474,48 @@
       + `const mk=(label,fill)=>{const x=document.createElement('button');x.textContent=label;x.style.cssText='font:12px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;padding:13px;border:1px solid #EFEFF1;border-radius:0;'+(fill?'background:#EFEFF1;color:#050505':'background:#050505;color:#EFEFF1');b.append(x);return x};`
       + `const b1=mk('Open in Safari',true),b2=mk('Copy for the Home Screen app',false),b3=mk('Cancel',false);`
       + `b1.onclick=()=>{b.remove();go()};b3.onclick=()=>b.remove();`
-      + `b2.onclick=async()=>{try{await navigator.clipboard.writeText(P+JSON.stringify({html:d.html,url:d.url}));b2.textContent='Copied. In the app, tap Add from AO3';b2.disabled=true;setTimeout(()=>b.remove(),6000)}catch(e){alert('Copying didn’t work: '+e.message)}};`
+      + `b2.onclick=async()=>{try{await navigator.clipboard.writeText(P+JSON.stringify({html:d.html,url:d.url}));b2.textContent='Copied. In the app, tap Paste';b2.disabled=true;setTimeout(()=>b.remove(),6000)}catch(e){alert('Copying didn’t work: '+e.message)}};`
       + `document.body.append(b)})()`;
     return 'javascript:' + encodeURIComponent(src);
   }
 
-  // The other half: the app reads what the bookmark copied.
+  // Paste: reads what the Shortcuts or the Listen bookmark copied.
+  //   FICMEUP1:{html,url}      a web page (an AO3 work or any other page)
+  //   FICMEUPF1:name:base64    a file shared from another app (EPUB, PDF, Word…)
+  //   anything else long        plain text, added as a story
+  const FILE_PREFIX = 'FICMEUPF1:';
   async function addFromClipboard() {
     let text;
     try { text = await navigator.clipboard.readText(); }
     catch { return setStatus('The clipboard couldn’t be read. Tap Paste when your phone asks, then try again.'); }
-    if (!text?.startsWith(CLIP_PREFIX)) {
-      return setStatus('No AO3 work on the clipboard. On AO3, tap Share, then Add to Fic Me Up.');
-    }
+    text = (text || '').trim();
     try {
-      const { html, url } = JSON.parse(text.slice(CLIP_PREFIX.length));
-      const work = await addWork(Parsers.fromDocument(new DOMParser().parseFromString(html, 'text/html')), url);
+      let parsed, url = '';
+      if (text.startsWith(CLIP_PREFIX)) {
+        const data = JSON.parse(text.slice(CLIP_PREFIX.length));
+        url = data.url || '';
+        setStatus('Reading the page…');
+        parsed = await Parsers.fromPage(new DOMParser().parseFromString(String(data.html), 'text/html'), url);
+      } else if (text.startsWith(FILE_PREFIX)) {
+        const rest = text.slice(FILE_PREFIX.length);
+        const cut = rest.lastIndexOf(':');
+        const name = rest.slice(0, cut) || 'Shared file';
+        const bin = atob(rest.slice(cut + 1).replace(/\s+/g, ''));
+        const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+        setStatus(`Reading ${name}…`);
+        parsed = await Parsers.fromFile(new File([bytes], name));
+      } else if (/^https?:\/\/\S+$/.test(text)) {
+        return setStatus('A link on its own can’t be opened here: the app would have to download the page, and browsers don’t allow that. Open the page in Safari and use Share → Add to Fic Me Up instead.');
+      } else if (text.length > 80) {
+        const lines = text.split('\n');
+        const at = lines.findIndex(l => l.trim());
+        const firstLine = lines[at].trim();
+        const short = firstLine.length <= 80;
+        parsed = Parsers.fromText(short ? lines.slice(at + 1).join('\n') : text, short ? firstLine : 'Pasted text');
+      } else {
+        return setStatus('Nothing to add on the clipboard. Share a page or file to Fic Me Up first, or copy some text.');
+      }
+      const work = await addWork(parsed, url);
       setStatus(`Added “${work.title}”.`);
       await renderLibrary();
       openWork(work.id);
@@ -516,7 +541,7 @@
         <li>Share → <b>Add Bookmark</b>. Name it <b>Listen</b>, folder <b>Favorites</b>, <b>Save</b>.</li>
         <li>Bookmarks → <b>Favorites</b> → <b>Edit</b> → <b>Listen</b>. Replace the address with the code. <b>Done</b>.</li>
       </ol>
-      <p><b>On AO3.</b> Open a work, tap <b>Entire Work</b> if it has chapters, tap the address bar, then <b>Listen</b> in Favorites. Choose <b>Open in Safari</b>, or, if you use Fic Me Up from your Home Screen, <b>Copy for the Home Screen app</b>; then open the app and tap <b>Add from AO3</b>.</p>`;
+      <p><b>On AO3.</b> Open a work, tap <b>Entire Work</b> if it has chapters, tap the address bar, then <b>Listen</b> in Favorites. Choose <b>Open in Safari</b>, or, if you use Fic Me Up from your Home Screen, <b>Copy for the Home Screen app</b>; then open the app and tap <b>Paste</b>. It works on other websites too.</p>`;
     body.querySelector('#bmLink').href = code;
     body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
     body.querySelector('#bmCopy').onclick = async () => {
@@ -528,12 +553,13 @@
   function listenForImport() {
     if (location.hash !== '#import' || !window.opener) return;
     history.replaceState(null, '', location.pathname);
-    setStatus('Receiving the story from AO3…');
+    setStatus('Receiving the page…');
     window.addEventListener('message', async e => {
-      if (!AO3_ORIGIN.test(e.origin) || e.data?.type !== 'fic-listener-import') return;
+      // only the page that opened this window, on any site
+      if (e.source !== window.opener || e.data?.type !== 'fic-listener-import') return;
       try {
-        const doc = new DOMParser().parseFromString(e.data.html, 'text/html');
-        const work = await addWork(Parsers.fromDocument(doc), e.data.url);
+        const doc = new DOMParser().parseFromString(String(e.data.html), 'text/html');
+        const work = await addWork(await Parsers.fromPage(doc, e.data.url), e.data.url);
         setStatus(`Added “${work.title}”.`);
         await renderLibrary();
         openWork(work.id);
@@ -604,8 +630,15 @@
     if (fromStart && idx >= sentences.length - 1) idx = 0;   // a finished work in the queue starts over
 
     els.appTitle.textContent = work.title;
-    els.ao3Link.href = ao3Link(work);
-    els.ao3Link.textContent = work.sourceUrl ? 'AO3 ↗' : 'Find on AO3 ↗';
+    if (isAo3(work)) {
+      els.ao3Link.hidden = false;
+      els.ao3Link.href = ao3Link(work);
+      els.ao3Link.textContent = work.sourceUrl ? 'AO3 ↗' : 'Find on AO3 ↗';
+    } else {
+      els.ao3Link.hidden = !work.sourceUrl;
+      els.ao3Link.href = work.sourceUrl || '#';
+      els.ao3Link.textContent = 'Source ↗';
+    }
     els.backBtn.hidden = false;
     els.libraryView.hidden = true;
     els.readerView.hidden = false;
@@ -656,6 +689,8 @@
     els.text.replaceChildren(frag);
   }
 
+  // AO3 works get AO3 links; anything else links to its original page, if it has one.
+  const isAo3 = w => /archiveofourown\.org/.test(w.sourceUrl || '') || !!w.info?.length;
   const ao3Link = w => w.sourceUrl
     || `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${encodeURIComponent(`"${w.title}" ${w.author || ''}`.trim())}`;
 
@@ -705,6 +740,20 @@
   function renderFinish() {
     const f = document.createElement('section');
     f.className = 'finish';
+    if (!isAo3(work)) {
+      f.innerHTML = `<p class="mono">End</p><div class="cta"></div>`;
+      if (work.sourceUrl) {
+        const a = document.createElement('a');
+        a.className = 'primary-btn'; a.target = '_blank'; a.rel = 'noopener';
+        a.href = work.sourceUrl; a.textContent = 'Open the original page';
+        f.querySelector('.cta').append(a);
+      }
+      const k = document.createElement('a');
+      k.className = 'secondary-btn'; k.target = '_blank'; k.rel = 'noopener';
+      k.href = 'https://ko-fi.com/thisandthatspace'; k.textContent = 'Support Fic Me Up';
+      f.querySelector('.cta').append(k);
+      return f;
+    }
     const onAo3 = !!work.sourceUrl;
     f.innerHTML = `
       <p class="mono">End of work</p>
@@ -1046,12 +1095,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=20',
+    workerUrl: 'kokoro-worker.js?v=21',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=20' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=21' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');

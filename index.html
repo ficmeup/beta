@@ -28,10 +28,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=20" defer></script>
-<script src="app.js?v=20" defer></script>
+<script src="parsers.js?v=21" defer></script>
+<script src="app.js?v=21" defer></script>
 </head>
 <body>
 <div id="field" aria-hidden="true"></div>
@@ -58,16 +58,16 @@
   </section>
 
   <section>
-    <div class="sechead"><h3>Add a story</h3><span class="mono">EPUB · HTML · PDF · TXT</span></div>
+    <div class="sechead"><h3>Add a story</h3><span class="mono">EPUB · PDF · DOCX · Web</span></div>
     <div class="add-row">
       <label class="primary-btn file-btn">
         Open a file
         <input type="file" id="fileInput" multiple
-               accept=".epub,.html,.htm,.pdf,.txt,application/epub+zip,text/html,application/pdf,text/plain">
+               accept=".epub,.html,.htm,.pdf,.txt,.md,.docx,application/epub+zip,text/html,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
       </label>
-      <button type="button" id="clipAdd" class="secondary-btn">Add from AO3</button>
+      <button type="button" id="clipAdd" class="secondary-btn">Paste</button>
     </div>
-    <p class="hint">On AO3, tap <b>Download</b> on a work and choose <b>EPUB</b>. HTML and PDF work too.</p>
+    <p class="hint"><b>Open a file</b>: EPUB, PDF, Word (.docx), HTML or text. <b>Paste</b>: after Share → Add to Fic Me Up on any web page, or Send file to Fic Me Up from another app, or any copied text.</p>
 
     <details>
       <summary>Paste text</summary>
@@ -102,7 +102,7 @@
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 20 · <a href="guide.html">Guide</a></span>
+    <span>Version 21 · <a href="guide.html">Guide</a></span>
   </footer>
 </main>
 

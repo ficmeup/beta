@@ -198,6 +198,43 @@ const Parsers = (() => {
     return { title, author: meta('creator'), chapters: story.flatMap(p => p.chapters), info, url };
   }
 
+  // Loads a library from a CDN once, only when it's first needed.
+  const scriptPromises = {};
+  function loadScript(url, globalName, what) {
+    scriptPromises[url] ||= new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = url;
+      el.onload = () => resolve(window[globalName]);
+      el.onerror = () => { delete scriptPromises[url]; reject(new Error(`The ${what} reader could not load. Check your internet connection.`)); };
+      document.head.append(el);
+    });
+    return scriptPromises[url];
+  }
+
+  // Any web page that isn't an AO3 work: Mozilla's Readability (the engine behind
+  // Firefox Reader View) picks out the article and drops menus, ads and comments.
+  async function fromPage(doc, url = '', fallbackTitle = 'Untitled') {
+    if (doc.querySelector('#workskin') || hasUserstuff(doc)) return fromDocument(doc, fallbackTitle);
+    const Readability = await loadScript('https://cdn.jsdelivr.net/npm/@mozilla/readability@0.6.0/Readability.js', 'Readability', 'web page');
+    const base = doc.createElement('base');
+    if (url) { base.href = url; doc.head?.prepend(base); }
+    const article = new Readability(doc.cloneNode(true)).parse();
+    if (!article?.content) return fromDocument(doc, fallbackTitle);
+    const body = new DOMParser().parseFromString(article.content, 'text/html');
+    const heading = body.querySelector('h1, h2');
+    const title = (heading && textOf(heading)) || clean(article.title || '').split(/\s+[|–—]\s+/)[0] || workTitle(doc) || fallbackTitle;
+    return { title, author: clean(article.byline || ''), chapters: genericChapters(body.body, title), info: [], url: workUrlIn(url) };
+  }
+
+  // Word documents, converted to HTML with mammoth, then read like any page.
+  async function fromDocx(file, title) {
+    const mammoth = await loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.13.0/mammoth.browser.min.js', 'mammoth', 'Word document');
+    const { value } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+    const doc = new DOMParser().parseFromString(value, 'text/html');
+    const firstHeading = doc.querySelector('h1, h2');
+    return { title: firstHeading ? textOf(firstHeading) : title, author: '', chapters: genericChapters(doc.body, title), info: [], url: workUrlIn(value) };
+  }
+
   let pdfjsPromise;
   function loadPdfjs() {
     const v = '3.11.174';
@@ -266,13 +303,19 @@ const Parsers = (() => {
     if (name.endsWith('.epub') || file.type === 'application/epub+zip') return fromEpub(file);
     if (name.endsWith('.pdf') || file.type === 'application/pdf') return fromPdf(file);
     if (/\.html?$/.test(name) || file.type === 'text/html') {
-      return fromDocument(new DOMParser().parseFromString(await file.text(), 'text/html'), bare);
+      return fromPage(new DOMParser().parseFromString(await file.text(), 'text/html'), '', bare);
+    }
+    if (name.endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return fromDocx(file, bare);
+    }
+    if (/\.(doc|pages|rtf)$/.test(name)) {
+      throw new Error('This format can’t be read. Save it as .docx, PDF or plain text first (Share → Export or Save As).');
     }
     if (/\.(mobi|azw3?)$/.test(name)) {
       throw new Error('Kindle files (MOBI/AZW3) aren’t supported. Download the EPUB version from AO3 instead; it’s the same story.');
     }
     if (file.type && !file.type.startsWith('text/') && !/\.(txt|text|md)$/.test(name)) {
-      throw new Error('This isn’t a file Fic Me Up can read. Use the EPUB, HTML or PDF download from AO3.');
+      throw new Error('This isn’t a file Fic Me Up can read. EPUB, PDF, Word (.docx), HTML and text files work.');
     }
     return fromText(await file.text(), bare);
   }
@@ -333,5 +376,5 @@ const Parsers = (() => {
     return { chapters: out, info };
   }
 
-  return { fromFile, fromText, fromDocument, splitAo3Info };
+  return { fromFile, fromText, fromDocument, fromPage, splitAo3Info };
 })();
