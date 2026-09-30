@@ -473,3 +473,15 @@ html.beta .beta-tag { display: inline-block; }
 .guide .ways { padding-left: 1.4rem; }
 .guide .ways li { margin-bottom: 14px; }
 .guide .ways li::marker { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+
+/* pronunciations */
+.pron-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.pron-actions select {
+  padding: 10px; border: 1px solid var(--rule); border-radius: 0; background: var(--ground); color: var(--ink);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+}
+.pron-list { list-style: none; padding: 0; margin: 0 0 14px; }
+.pron-list li { display: flex; gap: 12px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--hair); color: var(--dim); }
+.pron-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pron-list li b { color: var(--ink); }
+#pronBox .label { margin: 14px 0 4px; }

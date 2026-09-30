@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 <script data-goatcounter="https://ficmeup.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </head>
 <body>
@@ -135,6 +135,7 @@ completion(&#x27;FICMEUP1:&#x27; + JSON.stringify({ html: html, url: location.hr
       <li>The chapter list stays at the top while you scroll. Pick a chapter to go straight to it. <b>AO3 ↗</b> beside it opens the fic’s AO3 page.</li>
       <li>The ⌄ button on the player folds it down or opens it again.</li>
       <li>AO3’s Rating-to-Stats block shows above the story under <b>Work info</b>. It isn’t read aloud.</li>
+      <li><b>Pronunciations</b>, on the main page: for names the voice gets wrong. Write the word, then how it sounds in plain letters (Hermione → her my oh nee), tap <b>Test</b>, then <b>Add</b>. There’s also a shared list everyone gets; yours wins if both have the same word. The text on screen never changes.</li>
     </ul>
   </section>
 
@@ -158,6 +159,21 @@ completion(&#x27;FICMEUP1:&#x27; + JSON.stringify({ html: html, url: location.hr
       <li>A story added on your phone isn’t on your computer, and on iPhone the Home Screen app and Safari don’t share a library. Queue, playlists and notes stay on the device too, until sign-in arrives.</li>
       <li>Fic Me Up isn’t made by or connected to AO3 or the Organization for Transformative Works.</li>
     </ul>
+  </section>
+
+  <section>
+    <details>
+      <summary>Managing the shared pronunciations (app owner only)</summary>
+      <ol>
+        <li>On GitHub, signed in: Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → <b>Generate new token</b>.</li>
+        <li>Name: <code>ficmeup-pronunciations</code>. Resource owner: <b>ficmeup</b>. Expiration: 1 year.</li>
+        <li>Repository access: <b>Only select repositories</b> → <b>ficmeup/data</b>.</li>
+        <li>Permissions → Repository permissions → <b>Contents: Read and write</b>. Nothing else.</li>
+        <li><b>Generate token</b> and copy it. If GitHub says the organization must approve it, approve it under the ficmeup organization’s Settings → Personal access tokens → Pending requests.</li>
+        <li>In Fic Me Up: Pronunciations → <b>I manage the shared list</b>, and paste the token. It stays on that device.</li>
+      </ol>
+      <p>After that, the <b>Add to</b> menu offers the shared list, and shared entries get <b>Remove</b>. Changes reach everyone within about a minute. The token can only change that one list.</p>
+    </details>
   </section>
 
   <section>

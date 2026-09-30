@@ -28,10 +28,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=25" defer></script>
-<script src="app.js?v=25" defer></script>
+<script src="parsers.js?v=26" defer></script>
+<script src="app.js?v=26" defer></script>
 <script data-goatcounter="https://ficmeup.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </head>
 <body>
@@ -83,6 +83,26 @@
       <div id="bookmarkletBody"></div>
     </details>
 
+    <details id="pronBox">
+      <summary>Pronunciations</summary>
+      <p class="hint">For names and words the voice says wrong. Write how it sounds in plain letters, with spaces or hyphens between the parts: <b>Hermione</b> → her-my-oh-nee. Only the voice changes; the text on screen stays as written.</p>
+      <input id="pronFrom" type="text" placeholder="Written as, e.g. Hermione" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <input id="pronTo" type="text" placeholder="Say it as, e.g. her-my-oh-nee" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <div class="pron-actions">
+        <button type="button" id="pronTest" class="secondary-btn">Test</button>
+        <select id="pronTarget" hidden aria-label="Add to">
+          <option value="mine">Add to mine</option>
+          <option value="shared">Add to shared, for everyone</option>
+        </select>
+        <button type="button" id="pronAdd" class="primary-btn">Add</button>
+      </div>
+      <p class="label">Yours <span id="pronMineCount"></span></p>
+      <ul id="pronMine" class="pron-list"></ul>
+      <p class="label">Shared, for everyone <span id="pronSharedCount"></span></p>
+      <ul id="pronShared" class="pron-list"></ul>
+      <p class="hint"><a href="#" id="pronAdmin">I manage the shared list</a></p>
+    </details>
+
     <details>
       <summary>Voices</summary>
       <p><b>Piper</b> · phones and computers · 60 MB per voice, downloaded once. Keeps reading with the screen locked. Linda and Cori are trained on audiobook narration.</p>
@@ -104,7 +124,7 @@
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 25 · <a href="guide.html">Guide</a></span>
+    <span>Version 26 · <a href="guide.html">Guide</a></span>
   </footer>
 </main>
 

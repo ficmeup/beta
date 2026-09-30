@@ -31,7 +31,10 @@
     summaryRate: $('#summaryRate'), summaryVoice: $('#summaryVoice'), summarySleep: $('#summarySleep'),
     libraryCount: $('#libraryCount'), clipAdd: $('#clipAdd'),
     libTabs: $('#libTabs'), viewActions: $('#viewActions'),
-    playerToggle: $('#playerToggle'), ao3Link: $('#ao3Link'),
+    playerToggle: $('#playerToggle'),
+    pronFrom: $('#pronFrom'), pronTo: $('#pronTo'), pronTest: $('#pronTest'), pronAdd: $('#pronAdd'),
+    pronTarget: $('#pronTarget'), pronMine: $('#pronMine'), pronShared: $('#pronShared'),
+    pronMineCount: $('#pronMineCount'), pronSharedCount: $('#pronSharedCount'), pronAdmin: $('#pronAdmin'), ao3Link: $('#ao3Link'),
     sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
     fontSelect: $('#fontSelect'), chapterBar: $('.chapter-bar'), topbar: $('.topbar'),
     textSmaller: $('#textSmaller'), textLarger: $('#textLarger'), textSizeValue: $('#textSizeValue'),
@@ -1125,12 +1128,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=25',
+    workerUrl: 'kokoro-worker.js?v=26',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=25' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=26' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1205,7 +1208,7 @@
       if (audioCache.has(key)) continue;
       generating = true;
       const entry = {};
-      entry.promise = choice.engine.generate(sentences[i].text, choice.voice).then(d => (entry.data = d));
+      entry.promise = choice.engine.generate(Pron.apply(sentences[i].text), choice.voice).then(d => (entry.data = d));
       audioCache.set(key, entry);
       entry.promise
         .catch(err => { audioCache.delete(key); entry.error = err; })
@@ -1377,7 +1380,7 @@
   audio.addEventListener('stalled', () => dbg('audio stalled'));
 
   function speakDevice(my, text) {
-    const u = new SpeechSynthesisUtterance(text);
+    const u = new SpeechSynthesisUtterance(Pron.apply(text));
     const v = currentVoice();
     if (v) { u.voice = v; u.lang = v.lang; }
     u.rate = settings.rate;
@@ -1813,6 +1816,185 @@
   // iOS can grey out EPUB files when a page restricts file types, so accept any
   // file there; unsupported ones get a clear message from the parser.
   if (isAppleMobile) els.fileInput.removeAttribute('accept');
+
+  // ---------- Pronunciations ----------
+  // Words the voice says wrong, respelled the way they sound. Applied to what the
+  // voice is given, never to the text on screen. Two lists: a shared one (managed by
+  // the app's owner, published at /data/pronunciations.json) and each person's own,
+  // which wins when both have the same word.
+  const Pron = (() => {
+    const KEY = `${NS}fic-listener-pronunciations`;
+    const SHARED_URL = '/data/pronunciations.json';
+    let mine = [], shared = [], compiled = null;
+    try { mine = JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch {}
+    const valid = e => e && typeof e.from === 'string' && typeof e.to === 'string' && e.from.trim() && e.to.trim();
+    const esc = str => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    function changed() {
+      compiled = null;
+      clearAudioCache();              // sentences already made used the old sounds
+      renderPronunciations();
+    }
+    function merged() {
+      const m = new Map();
+      for (const e of shared) m.set(e.from.toLowerCase(), e);
+      for (const e of mine) m.set(e.from.toLowerCase(), e);
+      return [...m.values()];
+    }
+    function compile() {
+      const list = merged().sort((x, y) => y.from.length - x.from.length);   // longest first
+      if (!list.length) return false;
+      return {
+        re: new RegExp(`(?<![\\p{L}\\p{N}])(${list.map(e => esc(e.from.trim())).join('|')})(?![\\p{L}\\p{N}])`, 'giu'),
+        map: new Map(list.map(e => [e.from.trim().toLowerCase(), e.to.trim()])),
+      };
+    }
+    function apply(text) {
+      if (compiled === null) compiled = compile();
+      if (!compiled) return text;
+      return text.replace(compiled.re, w => compiled.map.get(w.toLowerCase()) ?? w);
+    }
+    function saveMine() { try { localStorage.setItem(KEY, JSON.stringify(mine)); } catch {} changed(); }
+    async function loadShared() {
+      try {
+        const r = await fetch(`${SHARED_URL}?t=${Date.now()}`);
+        if (r.ok) { shared = ((await r.json()).entries || []).filter(valid); changed(); }
+      } catch {}
+    }
+    return {
+      apply, loadShared,
+      get mine() { return mine; }, get shared() { return shared; },
+      setShared(list) { shared = list; changed(); },
+      addMine(from, to) { mine = mine.filter(e => e.from.toLowerCase() !== from.toLowerCase()); mine.push({ from, to }); saveMine(); },
+      removeMine(from) { mine = mine.filter(e => e.from !== from); saveMine(); },
+    };
+  })();
+
+  // Owner mode: a GitHub token (write access to ficmeup/data only), kept on the
+  // owner's device, lets the app publish the shared list.
+  const ADMIN_KEY = 'fic-listener-admin-token';
+  const adminToken = () => { try { return localStorage.getItem(ADMIN_KEY) || ''; } catch { return ''; } };
+  const DATA_API = 'https://api.github.com/repos/ficmeup/data/contents/pronunciations.json';
+
+  async function publishShared(list, what) {
+    const headers = { Authorization: `Bearer ${adminToken()}`, Accept: 'application/vnd.github+json' };
+    setStatus('Publishing the shared list…');
+    try {
+      const cur = await fetch(DATA_API, { headers });
+      if (!cur.ok) throw new Error(`GitHub said ${cur.status}`);
+      const { sha } = await cur.json();
+      const body = JSON.stringify({
+        version: 1,
+        about: 'Shared pronunciations for Fic Me Up. Each entry: what’s written, and how to say it. Edited from the app’s admin mode.',
+        entries: list,
+      }, null, 2) + '\n';
+      const bytes = new TextEncoder().encode(body);
+      let bin = '';
+      bytes.forEach(b => { bin += String.fromCharCode(b); });
+      const who = { name: 'Fic Me Up', email: 'ficmeup@users.noreply.github.com' };
+      const put = await fetch(DATA_API, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ message: what, content: btoa(bin), sha, author: who, committer: who }),
+      });
+      if (!put.ok) throw new Error(`GitHub said ${put.status}`);
+      Pron.setShared(list);
+      setStatus('Published. Everyone gets it within about a minute.');
+    } catch (err) {
+      setStatus(`The shared list couldn’t be published (${err.message}). Nothing changed for anyone else.`);
+    }
+  }
+
+  // Hears a respelling in the current voice.
+  async function testSay(text) {
+    if (!text.trim()) return;
+    const choice = downloadableChoice();
+    if (choice && isDownloaded()) {
+      unlockAudio();
+      try {
+        const d = await choice.engine.generate(text, choice.voice);
+        silenceAll();
+        audio.src = URL.createObjectURL(wavFromParts([d.pcm], d.rate));
+        audio.playbackRate = settings.rate;
+        await audio.play();
+      } catch (err) { setStatus(`Couldn’t play the test: ${err.message}`); }
+    } else if (synth) {
+      silenceAll();
+      const u = new SpeechSynthesisUtterance(text);
+      const v = currentVoice();
+      if (v) { u.voice = v; u.lang = v.lang; }
+      u.rate = settings.rate;
+      synth.speak(u);
+    }
+  }
+
+  function renderPronunciations() {
+    const admin = !!adminToken();
+    const row = (e, removable, onRemove) => {
+      const li = document.createElement('li');
+      const label = document.createElement('span');
+      const b = document.createElement('b');
+      b.textContent = e.from;
+      label.append(b, ` → ${e.to}`);
+      const test = document.createElement('button');
+      test.type = 'button'; test.className = 'link-btn'; test.textContent = 'Test';
+      test.onclick = () => testSay(e.to);
+      li.append(label, test);
+      if (removable) {
+        const x = document.createElement('button');
+        x.type = 'button'; x.className = 'link-btn'; x.textContent = 'Remove';
+        x.onclick = onRemove;
+        li.append(x);
+      }
+      return li;
+    };
+    els.pronMine.replaceChildren(...Pron.mine.map(e => row(e, true, () => Pron.removeMine(e.from))));
+    els.pronShared.replaceChildren(...Pron.shared.map(e => row(e, admin, () => {
+      if (!confirm(`Remove “${e.from}” from the shared list, for everyone?`)) return;
+      publishShared(Pron.shared.filter(x => x !== e), `Remove ${e.from}`);
+    })));
+    els.pronMineCount.textContent = Pron.mine.length ? `· ${Pron.mine.length}` : '· none yet';
+    els.pronSharedCount.textContent = Pron.shared.length ? `· ${Pron.shared.length}` : '· none yet';
+    els.pronTarget.hidden = !admin;
+    els.pronAdmin.textContent = admin ? 'Leave owner mode on this device' : 'I manage the shared list';
+  }
+
+  els.pronTest.onclick = () => testSay(els.pronTo.value || els.pronFrom.value);
+  els.pronAdd.onclick = () => {
+    const from = els.pronFrom.value.trim(), to = els.pronTo.value.trim();
+    if (!from || !to) return setStatus('Fill in both: the word as written, and how to say it.');
+    if (adminToken() && els.pronTarget.value === 'shared') {
+      const list = Pron.shared.filter(e => e.from.toLowerCase() !== from.toLowerCase()).concat({ from, to });
+      publishShared(list, `Add ${from}`);
+    } else {
+      Pron.addMine(from, to);
+      setStatus(`Added “${from}”. It applies from the next sentence made.`);
+    }
+    els.pronFrom.value = els.pronTo.value = '';
+  };
+  els.pronAdmin.onclick = async e => {
+    e.preventDefault();
+    if (adminToken()) {
+      if (confirm('Leave owner mode on this device? The token is forgotten here; the shared list stays as it is.')) {
+        try { localStorage.removeItem(ADMIN_KEY); } catch {}
+        renderPronunciations();
+      }
+      return;
+    }
+    const token = prompt('Paste the GitHub token for the shared list (see the guide, “Managing the shared pronunciations”).')?.trim();
+    if (!token) return;
+    try {
+      const r = await fetch('https://api.github.com/repos/ficmeup/data', { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } });
+      const repo = r.ok ? await r.json() : null;
+      if (!repo?.permissions?.push) throw new Error(r.ok ? 'this token can’t change the list' : `GitHub said ${r.status}`);
+      localStorage.setItem(ADMIN_KEY, token);
+      renderPronunciations();
+      setStatus('Owner mode is on for this device. “Add to” now offers the shared list.');
+    } catch (err) {
+      setStatus(`That token didn’t work: ${err.message}.`);
+    }
+  };
+  renderPronunciations();
+  Pron.loadShared();
 
   loadVoices();
   findCachedPiperVoices().then(updateDownloadPrompt);
