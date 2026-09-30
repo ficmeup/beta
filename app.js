@@ -9,6 +9,12 @@
   const IS_BETA = /^\/beta(\/|$)/.test(location.pathname);
   const NS = IS_BETA ? 'beta-' : '';
   if (IS_BETA) document.documentElement.classList.add('beta');
+
+  // Anonymous counts with GoatCounter (no cookies, nothing about the person or what
+  // they read): which ways people add stories, and whether they actually listen.
+  function track(event) {
+    try { window.goatcounter?.count?.({ path: `${IS_BETA ? 'beta/' : ''}${event}`, title: event, event: true }); } catch {}
+  }
   const els = {
     appTitle: $('#appTitle'), backBtn: $('#backBtn'),
     libraryView: $('#libraryView'), readerView: $('#readerView'), player: $('#player'),
@@ -426,6 +432,7 @@
       setStatus(`Reading ${file.name}…`);
       try {
         const work = await addWork(await Parsers.fromFile(file));
+        track('added-file');
         setStatus(`Added “${work.title}” (${work.chapters.length} chapter${work.chapters.length === 1 ? '' : 's'}).`);
       } catch (err) {
         console.error(err);
@@ -440,6 +447,7 @@
     if (!text) return setStatus('Paste some text first.');
     try {
       const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || 'Pasted story'));
+      track('added-typed-paste');
       els.pasteText.value = els.pasteTitle.value = '';
       setStatus(`Added “${work.title}”.`);
       renderLibrary();
@@ -536,6 +544,7 @@
         return setStatus('No text to paste. A copied book or file can’t be pasted into a web app: in Books or Files, tap Share → Save to Files, then use Open a file here. For a web page, copy its text: in Safari, aA → Show Reader, press and hold, Select All, Copy.');
       }
       const work = await addWork(parsed, url);
+      track(text.startsWith(CLIP_PREFIX) ? 'added-shortcut-page' : text.startsWith(FILE_PREFIX) ? 'added-shortcut-file' : 'added-paste');
       setStatus(`Added “${work.title}”.`);
       await renderLibrary();
       openWork(work.id);
@@ -580,6 +589,7 @@
       try {
         const doc = new DOMParser().parseFromString(String(e.data.html), 'text/html');
         const work = await addWork(await Parsers.fromPage(doc, e.data.url), e.data.url);
+        track('added-bookmark');
         setStatus(`Added “${work.title}”.`);
         await renderLibrary();
         openWork(work.id);
@@ -1115,12 +1125,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=24',
+    workerUrl: 'kokoro-worker.js?v=25',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=24' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=25' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1547,6 +1557,7 @@
     keepScreenOn(!isDownloadable());
     keptOpen = false;
     scheduleMini();
+    if (!window.__trackedPlay) { window.__trackedPlay = true; track(isDownloadable() ? 'listened-downloaded-voice' : 'listened-builtin-voice'); }
     speakCurrent();
   }
 
