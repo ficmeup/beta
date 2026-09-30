@@ -34,6 +34,8 @@
     playerToggle: $('#playerToggle'),
     pronFrom: $('#pronFrom'), pronTo: $('#pronTo'), pronTest: $('#pronTest'), pronAdd: $('#pronAdd'),
     pronTarget: $('#pronTarget'), pronMine: $('#pronMine'), pronShared: $('#pronShared'),
+    pronFab: $('#pronFab'), pronSheet: $('#pronSheet'), psFrom: $('#psFrom'), psTo: $('#psTo'),
+    psHear: $('#psHear'), psTest: $('#psTest'), psAdd: $('#psAdd'), psTarget: $('#psTarget'),
     pronMineCount: $('#pronMineCount'), pronSharedCount: $('#pronSharedCount'), pronAdmin: $('#pronAdmin'), ao3Link: $('#ao3Link'),
     sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
     fontSelect: $('#fontSelect'), chapterBar: $('.chapter-bar'), topbar: $('.topbar'),
@@ -1128,12 +1130,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=26',
+    workerUrl: 'kokoro-worker.js?v=27',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=26' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=27' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
@@ -1958,18 +1960,52 @@
     els.pronAdmin.textContent = admin ? 'Leave owner mode on this device' : 'I manage the shared list';
   }
 
-  els.pronTest.onclick = () => testSay(els.pronTo.value || els.pronFrom.value);
-  els.pronAdd.onclick = () => {
-    const from = els.pronFrom.value.trim(), to = els.pronTo.value.trim();
-    if (!from || !to) return setStatus('Fill in both: the word as written, and how to say it.');
-    if (adminToken() && els.pronTarget.value === 'shared') {
+  function addPronunciation(from, to, target) {
+    from = from.trim(); to = to.trim();
+    if (!from || !to) { setStatus('Fill in both: the word as written, and how to say it.'); return false; }
+    if (adminToken() && target === 'shared') {
       const list = Pron.shared.filter(e => e.from.toLowerCase() !== from.toLowerCase()).concat({ from, to });
       publishShared(list, `Add ${from}`);
     } else {
       Pron.addMine(from, to);
       setStatus(`Added “${from}”. It applies from the next sentence made.`);
     }
-    els.pronFrom.value = els.pronTo.value = '';
+    return true;
+  }
+  els.pronTest.onclick = () => testSay(els.pronTo.value || els.pronFrom.value);
+  els.pronAdd.onclick = () => {
+    if (addPronunciation(els.pronFrom.value, els.pronTo.value, els.pronTarget.value)) els.pronFrom.value = els.pronTo.value = '';
+  };
+
+  // Press and hold a word in a fic: a Pronounce button appears for the selection.
+  let pronPick = '';
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(pronPick.timer);
+    const sel = window.getSelection();
+    const text = (sel?.toString() || '').trim().replace(/\s+/g, ' ');
+    const inFic = sel?.rangeCount && els.text.contains(sel.getRangeAt(0).commonAncestorContainer);
+    const ok = inFic && text.length >= 2 && text.length <= 40 && text.split(' ').length <= 4 && /[\p{L}]/u.test(text);
+    if (!ok) { els.pronFab.hidden = true; return; }
+    pronPick = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').replace(/[’']s$/i, '');
+    els.pronFab.textContent = `Pronounce “${pronPick}”`;
+    els.pronFab.hidden = false;
+  });
+  els.pronFab.onclick = () => {
+    const known = [...Pron.mine, ...Pron.shared].find(e => e.from.toLowerCase() === pronPick.toLowerCase());
+    els.psFrom.value = pronPick;
+    els.psTo.value = known?.to || '';
+    els.psTarget.hidden = !adminToken();
+    els.pronFab.hidden = true;
+    window.getSelection()?.removeAllRanges();
+    els.pronSheet.showModal();
+  };
+  els.psHear.onclick = () => testSay(Pron.apply(els.psFrom.value));
+  els.psTest.onclick = () => testSay(els.psTo.value || els.psFrom.value);
+  els.psAdd.onclick = () => {
+    if (addPronunciation(els.psFrom.value, els.psTo.value, els.psTarget.value)) {
+      els.pronSheet.close();
+      if (playing) speakCurrent();   // rebuild from here so the new sound is used straight away
+    }
   };
   els.pronAdmin.onclick = async e => {
     e.preventDefault();

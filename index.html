@@ -28,10 +28,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=26" defer></script>
-<script src="app.js?v=26" defer></script>
+<script src="parsers.js?v=27" defer></script>
+<script src="app.js?v=27" defer></script>
 <script data-goatcounter="https://ficmeup.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </head>
 <body>
@@ -124,7 +124,7 @@
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 26 · <a href="guide.html">Guide</a></span>
+    <span>Version 27 · <a href="guide.html">Guide</a></span>
   </footer>
 </main>
 
@@ -211,6 +211,25 @@
   <p id="playerStatus" class="player-status" role="status"></p>
   <pre id="debugLog" class="debug-log" hidden></pre>
 </footer>
+
+<!-- press and hold a word in a fic -> Pronounce -->
+<button type="button" id="pronFab" class="pron-fab" hidden></button>
+<dialog id="pronSheet" class="sheet">
+  <p class="mono">Pronunciation</p>
+  <input id="psFrom" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Written as">
+  <button type="button" id="psHear" class="secondary-btn ps-hear">Hear it now</button>
+  <input id="psTo" type="text" placeholder="Say it as, e.g. her my oh nee" autocapitalize="off" autocomplete="off" spellcheck="false" aria-label="Say it as">
+  <p class="hint ps-tip">Plain letters, spaces between the parts. You can also tap the keyboard’s microphone and say it slowly, part by part.</p>
+  <div class="pron-actions">
+    <button type="button" id="psTest" class="secondary-btn">Test</button>
+    <select id="psTarget" hidden aria-label="Add to">
+      <option value="mine">Add to mine</option>
+      <option value="shared">Add to shared, for everyone</option>
+    </select>
+    <button type="button" id="psAdd" class="primary-btn">Add</button>
+  </div>
+  <form method="dialog"><button class="secondary-btn sheet-close">Close</button></form>
+</dialog>
 
 <!-- the ⋯ menu for a story -->
 <dialog id="sheet" class="sheet">

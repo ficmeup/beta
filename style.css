@@ -485,3 +485,16 @@ html.beta .beta-tag { display: inline-block; }
 .pron-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .pron-list li b { color: var(--ink); }
 #pronBox .label { margin: 14px 0 4px; }
+
+/* press-and-hold a word -> Pronounce */
+.pron-fab {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 30;
+  bottom: calc(var(--player-h, 120px) + 12px);
+  padding: 11px 16px; border: 1px solid var(--ink); background: var(--ink); color: var(--ground);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  max-width: calc(100vw - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+#pronSheet input[type=text] { margin: 0 0 10px; }
+#pronSheet .ps-hear { width: 100%; margin-bottom: 12px; }
+#pronSheet .ps-tip { font-size: 13px; margin: 0 0 12px; }
