@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 
@@ -60,19 +60,22 @@
     <p>On iPhone, the Home Screen app and Safari keep separate libraries. Stick to the icon, and every fic you add stays in one place, with its voice downloaded once.</p>
   </section>
 
-  <section>
+  <section id="add">
     <div class="sechead"><h3>02 · Add a fic</h3></div>
-    <p><b>From AO3 or any website.</b> Open the page in Safari (on AO3, tap <b>Entire Work</b> if it has chapters). Tap <b>Share</b>, then <b>Add to Fic Me Up</b>. Open the app and tap <b>Paste</b>. It opens, ready to play. On other sites, the app keeps the article and drops menus and ads.</p>
-    <p><b>From another app.</b> In Files, Mail, Apple Books (your own PDFs and EPUBs) and similar, tap <b>Share</b>, then <b>Send file to Fic Me Up</b>. Open the app and tap <b>Paste</b>.</p>
-    <p><b>From a download.</b> In the app, tap <b>Open a file</b>: EPUB, PDF, Word (.docx), HTML or text.</p>
-    <p><b>Any text.</b> Copy it anywhere, then tap <b>Paste</b>.</p>
-    <p><b>On a computer.</b> Use the Listen bookmark, set up from <b>The Listen bookmark for AO3</b> on the app’s main page. It works on other websites too.</p>
-    <p>The shortcuts and the bookmark read the page already on your screen. Nothing is fetched from AO3 by the app. A copied link on its own can’t be opened: the app would have to download the page, and browsers don’t allow that.</p>
+    <p>Five ways. The first three need no setup.</p>
+    <ol class="ways">
+      <li><b>Download it from AO3.</b> On the work, tap <b>Download</b> → <b>EPUB</b>. In Fic Me Up, tap <b>Open a file</b> and choose it from Downloads. Chapters, titles and Work info come through.</li>
+      <li><b>Copy the text, from any website.</b> In Safari, tap <b>aA</b> → <b>Show Reader</b> (on AO3, tap <b>Entire Work</b> first if it has chapters). Press and hold on the text, tap <b>Select All</b>, then <b>Copy</b>. In Fic Me Up, tap <b>Paste</b>. The first line becomes the title.</li>
+      <li><b>A file from another app.</b> In Files, Mail, Apple Books and the like, tap <b>Share</b> → <b>Save to Files</b>. In Fic Me Up, tap <b>Open a file</b>. EPUB, PDF, Word (.docx), HTML and text work.</li>
+      <li><b>Faster, after a one-time setup: Shortcuts.</b> Two small Apple Shortcuts put <b>Add to Fic Me Up</b> and <b>Send file to Fic Me Up</b> in the Share button, so a page or file goes to the app in two taps, then <b>Paste</b>. How to make them is below.</li>
+      <li><b>On a computer: the Listen bookmark.</b> Set it up from <b>The Listen bookmark for AO3</b> on the app’s main page. It works on other websites too.</li>
+    </ol>
+    <p>None of these fetch anything from AO3; they use the page or file you already have. A copied link on its own can’t be opened: the app would have to download the page, and browsers don’t allow that.</p>
     <p>Books bought in Apple Books are copy-protected, and Apple doesn’t let any app open them. Your own EPUBs and PDFs work.</p>
 
     <details>
       <summary>Set up Add to Fic Me Up (iPhone, once)</summary>
-      <p>An Apple Shortcut for web pages. If someone sent you a link to it, open the link and tap <b>Add Shortcut</b>, then do step 1 only. To make it yourself:</p>
+      <p>For way 4. A Shortcut is made once in Apple’s <b>Shortcuts</b> app; after that it appears when you tap <b>Share</b> in Safari. If someone sent you a link to it, open the link and tap <b>Add Shortcut</b>, then do step 1 only. To make it yourself:</p>
       <ol>
         <li>Settings → Apps → Shortcuts → Advanced → turn on <b>Allow Running Scripts</b>.</li>
         <li>Open the <b>Shortcuts</b> app and tap <b>+</b>.</li>
@@ -87,12 +90,12 @@ completion(&#x27;FICMEUP1:&#x27; + JSON.stringify({ html: html, url: location.hr
         <li>Add the action <b>Show Notification</b> with the text: <i>Copied. Open Fic Me Up and tap Paste.</i></li>
         <li>Tap the name at the top, call it <b>Add to Fic Me Up</b>. Open its settings (ⓘ), turn on <b>Show in Share Sheet</b>, and set it to accept <b>Safari web pages</b> only.</li>
       </ol>
-      <p>The first time you use it on a website, iPhone asks whether the shortcut may run there. Tap <b>Allow</b>, or <b>Always Allow</b>.</p>
+      <p>To use it: in Safari, tap <b>Share</b> and scroll past the row of apps; <b>Add to Fic Me Up</b> is in the list below. (<b>Edit Actions…</b> at the bottom of that list can move it to the top.) The first time on a website, iPhone asks whether it may run there: tap <b>Allow</b>.</p>
     </details>
 
     <details>
       <summary>Set up Send file to Fic Me Up (iPhone, once)</summary>
-      <p>An Apple Shortcut for files from other apps.</p>
+      <p>For way 4, files. After it’s made, it appears when you tap <b>Share</b> on a file in Files, Mail, Books and other apps.</p>
       <ol>
         <li>Open the <b>Shortcuts</b> app and tap <b>+</b>.</li>
         <li>Add the action <b>Base64 Encode</b>. Tap its arrow (›) and set <b>Line Breaks</b> to <b>None</b>.</li>

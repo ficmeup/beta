@@ -487,7 +487,7 @@
   async function addFromClipboard() {
     let text;
     try { text = await navigator.clipboard.readText(); }
-    catch { return setStatus('The clipboard couldn’t be read. Tap Paste when your phone asks, then try again.'); }
+    catch { return setStatus('The clipboard couldn’t be read. When your phone shows a Paste button, tap it.'); }
     text = (text || '').trim();
     try {
       let parsed, url = '';
@@ -505,7 +505,7 @@
         setStatus(`Reading ${name}…`);
         parsed = await Parsers.fromFile(new File([bytes], name));
       } else if (/^https?:\/\/\S+$/.test(text)) {
-        return setStatus('A link on its own can’t be opened here: the app would have to download the page, and browsers don’t allow that. Open the page in Safari and use Share → Add to Fic Me Up instead.');
+        return setStatus('That’s a link. The app can’t download pages, so copy the story’s text instead: open the link in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy, then Paste here.');
       } else if (text.length > 80) {
         const lines = text.split('\n');
         const at = lines.findIndex(l => l.trim());
@@ -513,7 +513,7 @@
         const short = firstLine.length <= 80;
         parsed = Parsers.fromText(short ? lines.slice(at + 1).join('\n') : text, short ? firstLine : 'Pasted text');
       } else {
-        return setStatus('Nothing to add on the clipboard. Share a page or file to Fic Me Up first, or copy some text.');
+        return setStatus('Nothing to paste yet. Copy the story first: in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy. Then tap Paste.');
       }
       const work = await addWork(parsed, url);
       setStatus(`Added “${work.title}”.`);
@@ -1095,12 +1095,12 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=21',
+    workerUrl: 'kokoro-worker.js?v=22',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=21' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=22' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');

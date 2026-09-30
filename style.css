@@ -470,3 +470,6 @@ html.beta .beta-tag { display: inline-block; }
 
 /* phones: the colour field stays still (it kept the graphics chip busy the whole time) */
 @media (hover: none) { #field { animation: none; } }
+.guide .ways { padding-left: 1.4rem; }
+.guide .ways li { margin-bottom: 14px; }
+.guide .ways li::marker { font-family: var(--mono); font-size: 11px; color: var(--faint); }
