@@ -105,7 +105,7 @@ body.playing #field { animation-play-state: running; }
 :root[data-room="paper"] .brand-icon { fill: var(--ink); }
 .brand {
   margin: 0; font-family: var(--head); font-weight: 400;
-  font-size: 15px; letter-spacing: 0.18em; text-transform: uppercase;
+  font-size: 20px; letter-spacing: 0.16em; text-transform: uppercase;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 :root[data-room="paper"] .brand { font-size: 17px; letter-spacing: -0.005em; text-transform: none; }
@@ -145,10 +145,10 @@ body.playing #field { animation-play-state: running; }
   padding: 28px 0 14px; border-bottom: 1px solid var(--rule);
 }
 .sechead h3 {
-  margin: 0; font: 400 clamp(18px, 2.6vw, 22px)/1.2 var(--head);
-  letter-spacing: 0.09em; text-transform: uppercase;
+  margin: 0; font: 400 clamp(25px, 3.6vw, 31px)/1.2 var(--head);
+  letter-spacing: 0.08em; text-transform: uppercase;
 }
-:root[data-room="paper"] .sechead h3 { letter-spacing: -0.005em; text-transform: none; }
+:root[data-room="paper"] .sechead h3 { font-size: clamp(18px, 2.6vw, 22px); letter-spacing: -0.005em; text-transform: none; }
 
 .hint { color: var(--dim); font-size: 15px; }
 .hint b { color: var(--ink); }

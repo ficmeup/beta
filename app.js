@@ -36,7 +36,7 @@
     pronTarget: $('#pronTarget'), pronMine: $('#pronMine'), pronShared: $('#pronShared'),
     pronFab: $('#pronFab'), pronSheet: $('#pronSheet'), psFrom: $('#psFrom'), psTo: $('#psTo'),
     psHear: $('#psHear'), psTest: $('#psTest'), psAdd: $('#psAdd'), psTarget: $('#psTarget'),
-    pronMineCount: $('#pronMineCount'), pronSharedCount: $('#pronSharedCount'), pronAdmin: $('#pronAdmin'), ao3Link: $('#ao3Link'),
+    pronMineCount: $('#pronMineCount'), pronSharedCount: $('#pronSharedCount'), pronAdmin: $('#pronAdmin'), pronBox: $('#pronBox'), ao3Link: $('#ao3Link'),
     sheet: $('#sheet'), sheetTitle: $('#sheetTitle'), sheetActions: $('#sheetActions'),
     fontSelect: $('#fontSelect'), chapterBar: $('.chapter-bar'), topbar: $('.topbar'),
     textSmaller: $('#textSmaller'), textLarger: $('#textLarger'), textSizeValue: $('#textSizeValue'),
@@ -1956,7 +1956,10 @@
     })));
     els.pronMineCount.textContent = Pron.mine.length ? `· ${Pron.mine.length}` : '· none yet';
     els.pronSharedCount.textContent = Pron.shared.length ? `· ${Pron.shared.length}` : '· none yet';
+    // For now the pronunciation tools are the owner's alone; everyone else just hears the shared list.
+    els.pronBox.hidden = !admin;
     els.pronTarget.hidden = !admin;
+    if (admin) els.pronTarget.value = els.psTarget.value = 'shared';
     els.pronAdmin.textContent = admin ? 'Leave owner mode on this device' : 'I manage the shared list';
   }
 
@@ -1985,7 +1988,7 @@
     const text = (sel?.toString() || '').trim().replace(/\s+/g, ' ');
     const inFic = sel?.rangeCount && els.text.contains(sel.getRangeAt(0).commonAncestorContainer);
     const ok = inFic && text.length >= 2 && text.length <= 40 && text.split(' ').length <= 4 && /[\p{L}]/u.test(text);
-    if (!ok) { els.pronFab.hidden = true; return; }
+    if (!ok || !adminToken()) { els.pronFab.hidden = true; return; }
     pronPick = text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').replace(/[’']s$/i, '');
     els.pronFab.textContent = `Pronounce “${pronPick}”`;
     els.pronFab.hidden = false;
@@ -2007,8 +2010,8 @@
       if (playing) speakCurrent();   // rebuild from here so the new sound is used straight away
     }
   };
-  els.pronAdmin.onclick = async e => {
-    e.preventDefault();
+  els.pronAdmin.onclick = e => { e.preventDefault(); ownerMode(); };
+  async function ownerMode() {
     if (adminToken()) {
       if (confirm('Leave owner mode on this device? The token is forgotten here; the shared list stays as it is.')) {
         try { localStorage.removeItem(ADMIN_KEY); } catch {}
@@ -2016,7 +2019,7 @@
       }
       return;
     }
-    const token = prompt('Paste the GitHub token for the shared list (see the guide, “Managing the shared pronunciations”).')?.trim();
+    const token = prompt('Owner mode: paste the GitHub token for the shared pronunciations.')?.trim();
     if (!token) return;
     try {
       const r = await fetch('https://api.github.com/repos/ficmeup/data', { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } });
@@ -2028,7 +2031,12 @@
     } catch (err) {
       setStatus(`That token didn’t work: ${err.message}.`);
     }
-  };
+  }
+  // The owner turns owner mode on by opening the app with #owner at the end of the address.
+  if (location.hash === '#owner') {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (!adminToken()) setTimeout(ownerMode, 300);
+  }
   renderPronunciations();
   Pron.loadShared();
 
