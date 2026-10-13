@@ -136,9 +136,8 @@ body.playing #field { animation-play-state: running; }
   letter-spacing: -0.02em; text-wrap: balance;
 }
 .open p { margin: 0; color: var(--dim); max-width: 52ch; }
-/* the "fic me up!" artwork sits on its own black, so on paper it gets a black tile */
+/* the "fic me up!" artwork, on a transparent background in both rooms */
 .open .logo { display: block; width: min(240px, 60vw); height: auto; margin-bottom: 8px; }
-:root[data-room="paper"] .open .logo { background: #000; padding: 12px 16px; }
 
 .sechead {
   display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap;
