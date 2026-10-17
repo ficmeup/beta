@@ -472,14 +472,14 @@
   const bookmarkletCode = () => Listen.code(location.origin + location.pathname, location.origin);
 
   // Browsers often refuse the first clipboard read: a computer asks for permission and
-  // the page loses focus, and an iPhone's Paste bubble can be missed. So it tries plain
-  // text first, tries once more, and if that still fails opens the paste box, where a
-  // press-and-hold Paste always works.
+  // the page loses focus, and an iPhone's Paste bubble can be missed. Reading needs a
+  // fresh tap, so after a refusal it asks for one more tap; if that's refused too it
+  // opens the paste box, where a press-and-hold Paste always works.
   async function readClipboard() {
     const cb = navigator.clipboard;
     if (!cb) throw new Error('no clipboard');
     let text = '', html = '', kinds = [];
-    const viaRead = async () => {
+    if (cb.read) {
       const items = await cb.read();
       kinds = items.flatMap(i => [...i.types]);
       const item = items.find(i => i.types.includes('text/plain')) || items.find(i => i.types.includes('text/html'));
@@ -488,30 +488,42 @@
         const raw = await (await item.getType(type)).text();
         if (type === 'text/plain') text = raw; else html = raw;
       }
-    };
-    if (cb.readText) {
-      text = await cb.readText();
-      // nothing as text: read() says what was copied instead (a picture, a file, formatted text)
-      if (!text.trim() && cb.read) await viaRead().catch(() => {});
     } else {
-      await viaRead();
+      text = await cb.readText();
     }
     return { text, html, kinds };
   }
 
+  let pasteRefused = 0;
   async function addFromClipboard() {
     let got;
-    try { got = await readClipboard(); }
-    catch {
-      try { got = await readClipboard(); }
-      catch {
-        els.pasteBox.open = true;
-        els.pasteText.focus();
-        return setStatus('Your browser didn’t let the app read the clipboard. Press and hold in the box below, tap Paste, then Add to library.');
+    try {
+      got = await readClipboard();
+    } catch {
+      if (++pasteRefused < 2) {
+        els.clipAdd.textContent = 'Tap again';
+        setTimeout(() => { els.clipAdd.textContent = 'Paste'; }, 8000);
+        return setStatus('Tap Paste once more. If a small Paste bubble appears, tap it.');
       }
+      pasteRefused = 0;
+      els.clipAdd.textContent = 'Paste';
+      els.pasteBox.open = true;
+      els.pasteText.focus();
+      return setStatus('Your browser didn’t let the app read the clipboard. Press and hold in the box below and tap Paste.');
     }
+    pasteRefused = 0;
+    els.clipAdd.textContent = 'Paste';
     await addPasted(got.text, got.html, got.kinds);
   }
+
+  // Pasting what the Listen bookmark or a Shortcut copied into the box adds it straight away.
+  els.pasteText.addEventListener('paste', e => {
+    const text = (e.clipboardData?.getData('text/plain') || '').trim();
+    if (!text.startsWith(CLIP_PREFIX) && !text.startsWith(FILE_PREFIX)) return;
+    e.preventDefault();
+    els.pasteBox.open = false;
+    addPasted(text);
+  });
 
   // Paste: reads what the Shortcuts or the Listen bookmark copied.
   //   FICMEUP1:{html,url}      a web page (an AO3 work or any other page)
