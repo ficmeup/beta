@@ -594,18 +594,12 @@
     }
     const code = bookmarkletCode();
     body.innerHTML = `
-      <p class="hint">A bookmark that reads the AO3 page already open in your browser and sends the text here. It makes no requests to AO3 of its own, and it works on other websites too.</p>
-      <p><b>Computer.</b> Drag this onto your bookmarks bar:</p>
-      <p><a class="bookmarklet" id="bmLink">Listen</a></p>
-      <p><b>Phone or tablet.</b> Set it up once:</p>
       <ol>
         <li><button class="secondary-btn" id="bmCopy">Copy the Listen code</button></li>
         <li>Open any web page → <b>Share</b> → <b>Add Bookmark</b>. Name the bookmark <b>Listen</b> and save it to the folder <b>Favorites</b>.</li>
-        <li>Go to <b>Bookmarks</b> → <b>Favorites</b> and <b>Edit</b> the <b>Listen</b> bookmark. Replace the address with the code you copied in step 1. Tap <b>Done</b>.</li>
-      </ol>
-      <p><b>Using it.</b> Open AO3 in your browser → tap <b>Entire Work</b> → <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>, then open the app and tap <b>Paste</b>.</p>`;
-    body.querySelector('#bmLink').href = code;
-    body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
+        <li>Go to <b>Bookmarks</b> → <b>Favorites</b> and <b>Edit</b> the <b>Listen</b> bookmark. Replace the address with the code copied above. Tap <b>Done</b>.</li>
+        <li>Open AO3 in your browser → tap <b>Entire Work</b> → <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b> or <b>Copy for the Home Screen app</b>.</li>
+      </ol>`;
     body.querySelector('#bmCopy').onclick = async () => {
       try { await navigator.clipboard.writeText(code); setStatus('Listen code copied.'); }
       catch { prompt('Copy this code:', code); }
