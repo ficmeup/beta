@@ -18,7 +18,7 @@
   const els = {
     appTitle: $('#appTitle'), backBtn: $('#backBtn'),
     libraryView: $('#libraryView'), readerView: $('#readerView'), player: $('#player'),
-    fileInput: $('#fileInput'), pasteTitle: $('#pasteTitle'), pasteText: $('#pasteText'), pasteAdd: $('#pasteAdd'),
+    fileInput: $('#fileInput'), pasteTitle: $('#pasteTitle'), pasteText: $('#pasteText'), pasteAdd: $('#pasteAdd'), pasteBox: $('#pasteBox'),
     bookmarkletBody: $('#bookmarkletBody'), status: $('#status'),
     library: $('#library'), emptyLibrary: $('#emptyLibrary'),
     chapterSelect: $('#chapterSelect'), text: $('#text'),
@@ -450,6 +450,11 @@
   els.pasteAdd.onclick = async () => {
     const text = els.pasteText.value.trim();
     if (!text) return setStatus('Paste some text first.');
+    // something the Listen bookmark or a Shortcut copied: read it the same way as Paste
+    if (text.startsWith(CLIP_PREFIX) || text.startsWith(FILE_PREFIX)) {
+      els.pasteText.value = els.pasteTitle.value = '';
+      return addPasted(text);
+    }
     try {
       const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || 'Pasted story'));
       track('added-typed-paste');
@@ -485,11 +490,53 @@
       + `b.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;background:#050505;color:#EFEFF1;padding:16px;display:grid;gap:10px;font:15px/1.4 -apple-system,system-ui,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.5)';`
       + `const t=document.createElement('div');t.textContent='Fic Me Up';t.style.cssText='font:11px ui-monospace,Menlo,monospace;letter-spacing:.15em;text-transform:uppercase;color:#8C8C95';b.append(t);`
       + `const mk=(label,fill)=>{const x=document.createElement('button');x.textContent=label;x.style.cssText='font:12px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;padding:13px;border:1px solid #EFEFF1;border-radius:0;'+(fill?'background:#EFEFF1;color:#050505':'background:#050505;color:#EFEFF1');b.append(x);return x};`
-      + `const b1=mk('Open in Safari',true),b2=mk('Copy for the Home Screen app',false),b3=mk('Cancel',false);`
+      + `const b1=mk('Open in browser',true),b2=mk('Copy for the Home Screen app',false),b3=mk('Cancel',false);`
       + `b1.onclick=()=>{b.remove();go()};b3.onclick=()=>b.remove();`
       + `b2.onclick=async()=>{try{await navigator.clipboard.writeText(P+JSON.stringify({html:d.html,url:d.url}));b2.textContent='Copied. In the app, tap Paste';b2.disabled=true;setTimeout(()=>b.remove(),6000)}catch(e){alert('Copying didn’t work: '+e.message)}};`
       + `document.body.append(b)})()`;
     return 'javascript:' + encodeURIComponent(src);
+  }
+
+  // Browsers often refuse the first clipboard read: a computer asks for permission and
+  // the page loses focus, and an iPhone's Paste bubble can be missed. So it tries plain
+  // text first, tries once more, and if that still fails opens the paste box, where a
+  // press-and-hold Paste always works.
+  async function readClipboard() {
+    const cb = navigator.clipboard;
+    if (!cb) throw new Error('no clipboard');
+    let text = '', html = '', kinds = [];
+    const viaRead = async () => {
+      const items = await cb.read();
+      kinds = items.flatMap(i => [...i.types]);
+      const item = items.find(i => i.types.includes('text/plain')) || items.find(i => i.types.includes('text/html'));
+      if (item) {
+        const type = item.types.includes('text/plain') ? 'text/plain' : 'text/html';
+        const raw = await (await item.getType(type)).text();
+        if (type === 'text/plain') text = raw; else html = raw;
+      }
+    };
+    if (cb.readText) {
+      text = await cb.readText();
+      // nothing as text: read() says what was copied instead (a picture, a file, formatted text)
+      if (!text.trim() && cb.read) await viaRead().catch(() => {});
+    } else {
+      await viaRead();
+    }
+    return { text, html, kinds };
+  }
+
+  async function addFromClipboard() {
+    let got;
+    try { got = await readClipboard(); }
+    catch {
+      try { got = await readClipboard(); }
+      catch {
+        els.pasteBox.open = true;
+        els.pasteText.focus();
+        return setStatus('Your browser didn’t let the app read the clipboard. Press and hold in the box below, tap Paste, then Add to library.');
+      }
+    }
+    await addPasted(got.text, got.html, got.kinds);
   }
 
   // Paste: reads what the Shortcuts or the Listen bookmark copied.
@@ -497,26 +544,7 @@
   //   FICMEUPF1:name:base64    a file shared from another app (EPUB, PDF, Word…)
   //   anything else long        plain text, added as a story
   const FILE_PREFIX = 'FICMEUPF1:';
-  async function addFromClipboard() {
-    // read() shows what kind of thing was copied; websites only get text and images,
-    // so a copied file (a book from Books, a PDF from Files) arrives as nothing.
-    let text = '', html = '', kinds = [];
-    try {
-      if (navigator.clipboard.read) {
-        const items = await navigator.clipboard.read();
-        kinds = items.flatMap(i => [...i.types]);
-        const item = items.find(i => i.types.includes('text/plain')) || items.find(i => i.types.includes('text/html'));
-        if (item) {
-          const type = item.types.includes('text/plain') ? 'text/plain' : 'text/html';
-          const raw = await (await item.getType(type)).text();
-          if (type === 'text/plain') text = raw; else html = raw;
-        }
-      } else {
-        text = await navigator.clipboard.readText();
-      }
-    } catch {
-      return setStatus('The clipboard couldn’t be read. When your phone shows a Paste button, tap it.');
-    }
+  async function addPasted(text, html = '', kinds = []) {
     text = (text || '').trim();
     try {
       let parsed, url = '';
@@ -566,16 +594,16 @@
     }
     const code = bookmarkletCode();
     body.innerHTML = `
-      <p class="hint">A bookmark that reads the AO3 page already open in your browser and sends the text here. It makes no requests to AO3 of its own.</p>
+      <p class="hint">A bookmark that reads the AO3 page already open in your browser and sends the text here. It makes no requests to AO3 of its own, and it works on other websites too.</p>
       <p><b>Computer.</b> Drag this onto your bookmarks bar:</p>
       <p><a class="bookmarklet" id="bmLink">Listen</a></p>
-      <p><b>iPhone or iPad, Safari.</b> Set it up once:</p>
+      <p><b>Phone or tablet.</b> Set it up once:</p>
       <ol>
         <li><button class="secondary-btn" id="bmCopy">Copy the Listen code</button></li>
-        <li>Share → <b>Add Bookmark</b>. Name it <b>Listen</b>, folder <b>Favorites</b>, <b>Save</b>.</li>
-        <li>Bookmarks → <b>Favorites</b> → <b>Edit</b> → <b>Listen</b>. Replace the address with the code. <b>Done</b>.</li>
+        <li>Open any web page → <b>Share</b> → <b>Add Bookmark</b>. Name the bookmark <b>Listen</b> and save it to the folder <b>Favorites</b>.</li>
+        <li>Go to <b>Bookmarks</b> → <b>Favorites</b> and <b>Edit</b> the <b>Listen</b> bookmark. Replace the address with the code you copied in step 1. Tap <b>Done</b>.</li>
       </ol>
-      <p><b>On AO3.</b> Open a work, tap <b>Entire Work</b> if it has chapters, tap the address bar, then <b>Listen</b> in Favorites. Choose <b>Open in Safari</b>, or, if you use Fic Me Up from your Home Screen, <b>Copy for the Home Screen app</b>; then open the app and tap <b>Paste</b>. It works on other websites too.</p>`;
+      <p><b>Using it.</b> Open AO3 in your browser → tap <b>Entire Work</b> → <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>, then open the app and tap <b>Paste</b>.</p>`;
     body.querySelector('#bmLink').href = code;
     body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
     body.querySelector('#bmCopy').onclick = async () => {
