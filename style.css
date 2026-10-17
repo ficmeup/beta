@@ -483,9 +483,11 @@ html.beta .beta-tag { display: inline-block; }
 @media (hover: none) { #field { animation: none; } }
 .guide .ways { padding-left: 1.4rem; }
 .guide .ways li { margin-bottom: 14px; }
-.guide .ways ol { margin: 8px 0; list-style-type: lower-alpha; }
+.guide .ways ol { margin: 8px 0; list-style-type: disc; }
 .guide .ways ol li { margin-bottom: 6px; }
 .guide .ways li::marker { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+/* the Listen steps use the same dots as the guide's other lists */
+.guide .ways ol li::marker { font-family: inherit; font-size: inherit; color: inherit; }
 
 /* pronunciations */
 .pron-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
