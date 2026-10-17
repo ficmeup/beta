@@ -17,6 +17,7 @@
   --hair:   rgba(255,255,255,0.07);
   --scrim:  rgba(5,5,5,0.62);
   --field-opacity: 0.34;
+  --kofi: #FF4D4D;
   --read:  'Newsreader', 'Iowan Old Style', Georgia, serif;
   --mono:  'Steps Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
   --head:  'TINY', var(--mono);
@@ -36,6 +37,7 @@
   --hair:   rgba(0,0,0,0.09);
   --scrim:  rgba(216,216,211,0.74);
   --field-opacity: 0.42;
+  --kofi: #C8102E;
   --head:  'Basteleur Bold', Georgia, serif;
   color-scheme: light;
 }
@@ -232,6 +234,10 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
 
 .foot { padding: 40px 0 0; display: grid; gap: 6px; }
 .foot a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+/* Ko-fi is always red, wherever it appears */
+a.kofi, .foot a.kofi { color: var(--kofi); border-color: var(--kofi); }
+a.secondary-btn.kofi:hover { background: var(--kofi); color: var(--ground); }
+.guide .kind { margin-top: 40px; color: var(--ink); font-style: italic; }
 
 /* ---------- reader ---------- */
 .reader { max-width: 40rem; padding-bottom: calc(var(--player-h) + 40px); }
