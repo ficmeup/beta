@@ -575,7 +575,7 @@
         <li><button class="secondary-btn" id="bmCopy">Copy the Listen code</button></li>
         <li>Open any web page → <b>Share</b> → <b>Add Bookmark</b>. Name the bookmark <b>Listen</b> and save it to the folder <b>Favorites</b>.</li>
         <li>Go to <b>Bookmarks</b> → <b>Favorites</b> and <b>Edit</b> the <b>Listen</b> bookmark. Replace the address with the code copied above. Tap <b>Done</b>.</li>
-        <li>Open AO3 in your browser → tap <b>Entire Work</b> → <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b> or <b>Copy for the Home Screen app</b>.</li>
+        <li>Open AO3 in your browser → tap <b>Entire Work</b> → tap <b>⋯</b> → click <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>.</li>
       </ol>`;
     body.querySelector('#bmLink').href = code;
     body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
