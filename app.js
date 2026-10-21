@@ -1081,7 +1081,8 @@
       if (data.type === 'error') p.reject(new Error(data.message));
       else if (data.type === 'ready') p.resolve();
       else if (data.type === 'audio') {
-        dbg(`${name}: made ${data.seconds.toFixed(1)}s of speech in ${(data.ms / 1000).toFixed(1)}s`);
+        // Only slow ones, so the log keeps room for what matters; the 30 s note shows progress.
+        if (data.ms > data.seconds * 1000 * 0.6) dbg(`${name}: made ${data.seconds.toFixed(1)}s of speech in ${(data.ms / 1000).toFixed(1)}s (slow)`);
         if (!slowWarned && data.seconds > 1.5 && data.ms > data.seconds * 1000 * 1.1 && nextId > 3) {
           slowWarned = true;
           setPlayerStatus(`${name} is slower than speech on this device, so expect pauses.${hint}`, 10000);
@@ -1184,6 +1185,9 @@
   function unlockAudio() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     keepAudioAlive();
+    // iOS sometimes stops a page's sound for good while still calling it "running" (its
+    // clock stops). A tap is the one time a fresh one is sure to start, so make one then.
+    if (!playing && (!ctx || clockStopped || ctx.state === 'closed' || ctx.state === 'interrupted')) newAudioContext();
     const c = audioContext();
     if (c && c.state !== 'running') c.resume().catch(err => dbg(`sound couldn’t start: ${err.name}`));
   }
@@ -1191,15 +1195,29 @@
   let ctx = null;          // Web Audio, made during the first tap on play
   let source = null;       // the stretch playing now
   let followTimer = null;
-  function audioContext() {
-    if (!ctx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
-      ctx = new AC();
-      ctx.onstatechange = () => dbg(`sound ${ctx.state}`);
-    }
-    return ctx;
+  let clockStopped = false, lastClock = -1;
+  function newAudioContext() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    stopSource();
+    if (ctx) { const old = ctx; old.onstatechange = null; old.close().catch(() => {}); }
+    const c = new AC();
+    c.onstatechange = () => dbg(`sound ${c.state}`);
+    ctx = c;
+    clockStopped = false; lastClock = -1;
+    dbg(`new sound engine (${c.state})`);
+    return c;
   }
+  const audioContext = () => ctx || newAudioContext();
+  // Is the sound's clock still moving? Checked every 2 seconds, playing or not.
+  setInterval(() => {
+    if (!ctx || ctx.state !== 'running') { lastClock = -1; return; }
+    const t = ctx.currentTime;
+    const stopped = lastClock >= 0 && t === lastClock;
+    if (stopped && !clockStopped) dbg(`sound clock stopped at ${t.toFixed(1)}s`);
+    clockStopped = stopped;
+    lastClock = t;
+  }, 2000);
   function stopSource() {
     clearInterval(followTimer);
     if (!source) return;
@@ -1472,11 +1490,12 @@
       dbg(`sound stuck: ${playbackState()}`);
       if (++recoveries > 3) {
         stop();
-        return setPlayerStatus('The audio keeps stopping. Tap play to carry on, or tap here for details.');
+        return setPlayerStatus('The sound stopped. Tap play to carry on (a tap starts it afresh), or tap here for details.');
       }
       dbg(`restarting from sentence ${idx + 1} (try ${recoveries})`);
       setPlayerStatus('The audio stopped, so it’s starting again from this sentence. Tap here for details.');
-      ctx.resume().catch(() => {});
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      else newAudioContext().resume().catch(() => {});   // stopped clock, or interrupted: start afresh
       return speakCurrent();
     }
     // Not speaking: waiting for the next sentence to be made.
