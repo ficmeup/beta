@@ -82,8 +82,23 @@ async function loadVoice(id, onProgress) {
   return voice;
 }
 
-// Speeds speech up (or slows it down) without changing its pitch. Piper's own speed
-// setting falls well short (asking for 2x gives about 1.5x), so this uses WSOLA, the
+// How fast speech really comes out for Piper's own speed setting (measured: it falls
+// short, asking for 2x gives about 1.56x). Making speech faster this way is less work,
+// since there's less audio to make, so as much of the speed as this table reaches
+// comes from Piper, and changeSpeed does the rest. Capped at 1.5, where it still
+// sounds natural.
+const MODEL_SPEED = [[1, 1], [1.2, 1.11], [1.3, 1.18], [1.5, 1.355]];
+function splitSpeed(speed) {
+  if (speed <= 1) return { model: 1, rest: speed };
+  for (let k = 1; k < MODEL_SPEED.length; k++) {
+    const [m0, a0] = MODEL_SPEED[k - 1], [m1, a1] = MODEL_SPEED[k];
+    if (speed <= a1) return { model: m0 + ((m1 - m0) * (speed - a0)) / (a1 - a0), rest: 1 };
+  }
+  const [mMax, aMax] = MODEL_SPEED[MODEL_SPEED.length - 1];
+  return { model: mMax, rest: speed / aMax };
+}
+
+// Speeds speech up (or slows it down) without changing its pitch. This uses WSOLA, the
 // same method browsers use for playback speed: short overlapping windows, each one
 // nudged to where it lines up best with the one before, so the joins don't click.
 function changeSpeed(input, speed, rate) {
@@ -146,6 +161,7 @@ async function speak(text, speed = 1) {
   mod.callMain(['-l', config.espeak.voice, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']);
   const rate = config.audio.sample_rate;
   const { noise_scale, length_scale, noise_w } = config.inference;
+  const { model, rest } = splitSpeed(speed);
   const multiSpeaker = Object.keys(config.speaker_id_map || {}).length > 0;
   const chunks = [];
   for (const line of printed) {
@@ -154,13 +170,13 @@ async function speak(text, speed = 1) {
     const feeds = {
       input: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
       input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
-      scales: new ort.Tensor('float32', Float32Array.from([noise_scale, length_scale, noise_w]), [3]),
+      scales: new ort.Tensor('float32', Float32Array.from([noise_scale, length_scale / model, noise_w]), [3]),
     };
     if (multiSpeaker) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
     const { output } = await session.run(feeds);
     chunks.push(output.data);
   }
-  const pcm = trimmedPcm(chunks, rate, speed);
+  const pcm = trimmedPcm(chunks, rate, rest);
   return { pcm, rate, seconds: pcm.length / rate };
 }
 
