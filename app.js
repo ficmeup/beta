@@ -1390,7 +1390,46 @@
     pumpGeneration();
   }
 
+  // Stall guard: the Home Screen app sometimes leaves a stretch frozen or paused while
+  // the player still says it's playing. Every 2 seconds, check the audio is moving; if
+  // it isn't, start again from the current sentence, and say so if that keeps failing.
+  let lastTime = -1, stuckSince = 0, waitingSince = 0, recoveries = 0;
+  setInterval(() => {
+    if (!playing || !isDownloadable() || !stretch || stretch.my !== token) { stuckSince = waitingSince = 0; return; }
+    const now = Date.now();
+    if (audio.loop) {   // silence while the next sentence is being made
+      stuckSince = 0;
+      if (!waitingSince) waitingSince = now;
+      else if (now - waitingSince > 20000 && !els.playerStatus.textContent) {
+        dbg(`still waiting for sentence ${idx + 1} after ${Math.round((now - waitingSince) / 1000)}s`);
+        setPlayerStatus('Still making the voice… tap here for details.');
+      }
+      return;
+    }
+    waitingSince = 0;
+    const moving = !audio.paused && audio.currentTime !== lastTime;
+    lastTime = audio.currentTime;
+    if (moving) { stuckSince = 0; if (audio.currentTime > 5) recoveries = 0; return; }
+    if (!stuckSince) { stuckSince = now; return; }
+    if (now - stuckSince < 4000) return;
+    stuckSince = 0;
+    dbg(`audio stuck at ${audio.currentTime.toFixed(1)}s (paused ${audio.paused}, readyState ${audio.readyState}, network ${audio.networkState}, error ${audio.error?.code ?? 'none'})`);
+    if (++recoveries > 3) {
+      stop();
+      return setPlayerStatus('The audio keeps stopping. Tap play to carry on, or tap here for details.');
+    }
+    if (audio.ended) {   // finished, but the "ended" event never came
+      dbg('stretch ended without telling us; moving on');
+      idx = stretch.last;
+      return advance();
+    }
+    dbg(`restarting from sentence ${idx + 1} (try ${recoveries})`);
+    speakCurrent();
+  }, 2000);
+
   audio.addEventListener('playing', () => { if (!audio.loop) dbg(`playing sentence ${idx + 1}`); });
+  audio.addEventListener('pause', () => { if (playing && !audio.loop && !audio.ended) dbg('audio paused by the system'); });
+  audio.addEventListener('waiting', () => { if (!audio.loop) dbg('audio waiting for data'); });
   audio.addEventListener('error', () => dbg(`audio error code ${audio.error?.code}: ${audio.error?.message || ''}`));
   audio.addEventListener('stalled', () => dbg('audio stalled'));
 
