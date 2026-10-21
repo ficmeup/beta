@@ -1328,6 +1328,7 @@
   async function speakDownloaded(my) {
     const key = `${settings.voiceURI}|${idx}`;
     if (!audioCache.get(key)?.data) {
+      dbg(`waiting for sentence ${idx + 1} to be made`);
       keepAudioAlive();
       if (!/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
     }
@@ -1361,6 +1362,7 @@
     };
     audio.onended = () => {
       if (my !== token || !playing) return;
+      dbg(`stretch done (through sentence ${stretch.last + 1})`);
       idx = stretch.last;
       advance();
     };
@@ -1376,7 +1378,7 @@
     }, 6000);
     try {
       await audio.play();
-      if (my === token && /Preparing voice|ready\./.test(els.playerStatus.textContent)) setPlayerStatus('');
+      if (my === token && /Preparing voice|ready\.|Waiting for the voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
     } catch (err) {
       clearTimeout(watchdog);
       if (my !== token) return;
@@ -1390,41 +1392,56 @@
     pumpGeneration();
   }
 
-  // Stall guard: the Home Screen app sometimes leaves a stretch frozen or paused while
-  // the player still says it's playing. Every 2 seconds, check the audio is moving; if
-  // it isn't, start again from the current sentence, and say so if that keeps failing.
-  let lastTime = -1, stuckSince = 0, waitingSince = 0, recoveries = 0;
+  // Stall guard: the Home Screen app sometimes goes quiet while the player still says
+  // it's playing, either with a stretch frozen or while waiting for the next sentence
+  // to be made. Every 2 seconds, check speech is actually moving. A frozen stretch
+  // starts again from the current sentence; a long wait is shown, with details.
+  let lastTime = -1, stuckSince = 0, heardAt = 0, quietReported = 0, recoveries = 0;
+  function playbackState() {
+    const e = audioCache.get(`${settings.voiceURI}|${idx}`);
+    const made = !e ? 'not started' : e.data ? 'ready' : 'being made';
+    return `sentence ${idx + 1} ${made}; making ${generating}, resting ${!!restTimer}, ` +
+      `silence loop ${audio.loop}, paused ${audio.paused}, at ${audio.currentTime.toFixed(1)}s, ` +
+      `readyState ${audio.readyState}, error ${audio.error?.code ?? 'none'}, screen ${document.visibilityState}`;
+  }
   setInterval(() => {
-    if (!playing || !isDownloadable() || !stretch || stretch.my !== token) { stuckSince = waitingSince = 0; return; }
+    if (!playing || !isDownloadable()) { stuckSince = heardAt = quietReported = 0; return; }
     const now = Date.now();
-    if (audio.loop) {   // silence while the next sentence is being made
-      stuckSince = 0;
-      if (!waitingSince) waitingSince = now;
-      else if (now - waitingSince > 20000 && !els.playerStatus.textContent) {
-        dbg(`still waiting for sentence ${idx + 1} after ${Math.round((now - waitingSince) / 1000)}s`);
-        setPlayerStatus('Still making the voice… tap here for details.');
-      }
+    if (!heardAt) heardAt = now;
+    const speaking = stretch?.my === token && !audio.loop;
+    if (speaking && !audio.paused && audio.currentTime !== lastTime) {
+      lastTime = audio.currentTime;
+      heardAt = now; stuckSince = 0; quietReported = 0;
+      if (audio.currentTime > 5) recoveries = 0;
       return;
     }
-    waitingSince = 0;
-    const moving = !audio.paused && audio.currentTime !== lastTime;
     lastTime = audio.currentTime;
-    if (moving) { stuckSince = 0; if (audio.currentTime > 5) recoveries = 0; return; }
-    if (!stuckSince) { stuckSince = now; return; }
-    if (now - stuckSince < 4000) return;
+    if (speaking) {
+      if (!stuckSince) { stuckSince = now; return; }
+      if (now - stuckSince < 4000) return;
+      stuckSince = 0;
+      dbg(`audio stuck: ${playbackState()}`);
+      if (++recoveries > 3) {
+        stop();
+        return setPlayerStatus('The audio keeps stopping. Tap play to carry on, or tap here for details.');
+      }
+      if (audio.ended) {   // finished, but the "ended" event never came
+        dbg('stretch ended without telling us; moving on');
+        idx = stretch.last;
+        return advance();
+      }
+      dbg(`restarting from sentence ${idx + 1} (try ${recoveries})`);
+      setPlayerStatus('The audio stopped, so it’s starting again from this sentence. Tap here for details.');
+      return speakCurrent();
+    }
+    // Not speaking: waiting for the next sentence to be made.
     stuckSince = 0;
-    dbg(`audio stuck at ${audio.currentTime.toFixed(1)}s (paused ${audio.paused}, readyState ${audio.readyState}, network ${audio.networkState}, error ${audio.error?.code ?? 'none'})`);
-    if (++recoveries > 3) {
-      stop();
-      return setPlayerStatus('The audio keeps stopping. Tap play to carry on, or tap here for details.');
+    if (/Downloading|Starting/.test(els.playerStatus.textContent)) return;
+    if (now - heardAt > 12000 && now - quietReported > 15000) {
+      quietReported = now;
+      dbg(`quiet for ${Math.round((now - heardAt) / 1000)}s: ${playbackState()}`);
+      setPlayerStatus('Waiting for the voice to make the next part… tap here for details.');
     }
-    if (audio.ended) {   // finished, but the "ended" event never came
-      dbg('stretch ended without telling us; moving on');
-      idx = stretch.last;
-      return advance();
-    }
-    dbg(`restarting from sentence ${idx + 1} (try ${recoveries})`);
-    speakCurrent();
   }, 2000);
 
   audio.addEventListener('playing', () => { if (!audio.loop) dbg(`playing sentence ${idx + 1}`); });
