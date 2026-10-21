@@ -36,7 +36,7 @@ self.onmessage = async ({ data }) => {
       self.postMessage({ type: 'ready', id });
     } else if (data.type === 'generate') {
       const started = performance.now();
-      const audio = await tts.generate(data.text, { voice: data.voice });
+      const audio = await tts.generate(data.text, { voice: data.voice, speed: data.speed || 1 });
       const rate = audio.sampling_rate;
       const pcm = trimmedPcm(audio.audio, rate);
       self.postMessage({ type: 'audio', id, pcm, rate, seconds: pcm.length / rate, ms: Math.round(performance.now() - started) }, [pcm.buffer]);

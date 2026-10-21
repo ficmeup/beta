@@ -859,9 +859,9 @@
   }
 
   // ---------- Speech ----------
-  // Two engines: the device's built-in voices (speechSynthesis) and Kokoro, an open
-  // voice model that runs in a worker and plays through an <audio> element.
-  // The <audio> route keeps playing when the phone is locked.
+  // Two kinds of voice: the device's built-in voices (speechSynthesis), and Piper and
+  // Kokoro, open voice models that run in a worker and play through Web Audio.
+  // The Web Audio route keeps playing when the phone is locked.
 
   const synth = window.speechSynthesis;
   let playing = false;
@@ -1123,10 +1123,10 @@
       return promise;
     }
 
-    function generate(text, voice) {
+    function generate(text, voice, speed = 1) {
       const run = async () => {
         await load(voice);
-        return request({ type: 'generate', text, voice }, GENERATE_MS, false).catch(err => {
+        return request({ type: 'generate', text, voice, speed }, GENERATE_MS, false).catch(err => {
           throw new Error(`${name}: ${err.message}.${hint}`);
         });
       };
@@ -1143,19 +1143,21 @@
 
   const KokoroEngine = makeEngine({
     name: 'Kokoro',
-    workerUrl: 'kokoro-worker.js?v=27',
+    workerUrl: 'kokoro-worker.js?v=41',
     // On the CPU Kokoro is slower than speech, so it's only offered with WebGPU.
     requirement: () => navigator.gpu ? null : 'Kokoro needs a newer browser (Safari on iOS 26 or macOS 26, or Chrome). Piper voices work here.',
     hint: ' Piper voices work on more devices.',
   });
-  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=27' });
+  const PiperEngine = makeEngine({ name: 'Piper', workerUrl: 'piper-worker.js?v=41' });
 
   const audio = new Audio();
   audio.setAttribute('playsinline', '');
   audio.preload = 'auto';
 
-  // iOS only lets audio start from a tap. Playing a moment of silence during the tap
-  // "unlocks" the element so later sentences can start on their own.
+  // A Home Screen app on a locked iPhone can keep audio playing, but can't load or
+  // start anything new. So from the tap on play, the <audio> element loops a moment
+  // of silence the whole time (holding the phone's audio session open), and the voice
+  // plays through Web Audio, which mixes in sound without loading anything.
   const SILENCE = (() => {
     const n = 2400, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
     const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
@@ -1167,9 +1169,30 @@
   })();
   function unlockAudio() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
-    audio.onended = null;
-    audio.src = SILENCE;
-    audio.play().then(() => dbg('audio unlocked'), err => { if (err.name !== 'AbortError') dbg(`unlock refused: ${err.name}`); });
+    keepAudioAlive();
+    const c = audioContext();
+    if (c && c.state !== 'running') c.resume().catch(err => dbg(`sound couldn’t start: ${err.name}`));
+  }
+
+  let ctx = null;          // Web Audio, made during the first tap on play
+  let source = null;       // the stretch playing now
+  let followTimer = null;
+  function audioContext() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      ctx.onstatechange = () => dbg(`sound ${ctx.state}`);
+    }
+    return ctx;
+  }
+  function stopSource() {
+    clearInterval(followTimer);
+    if (!source) return;
+    source.onended = null;
+    try { source.stop(); } catch {}
+    source.disconnect();
+    source = null;
   }
 
   // ---------- Buffering ----------
@@ -1223,10 +1246,11 @@
       if (audioCache.has(key)) continue;
       generating = true;
       const entry = {};
-      entry.promise = choice.engine.generate(Pron.apply(sentences[i].text), choice.voice).then(d => (entry.data = d));
+      // Made at the reading speed, so speeding up doesn't raise the voice's pitch.
+      entry.promise = choice.engine.generate(Pron.apply(sentences[i].text), choice.voice, settings.rate).then(d => (entry.data = d));
       audioCache.set(key, entry);
       entry.promise
-        .catch(err => { audioCache.delete(key); entry.error = err; })
+        .catch(err => { if (audioCache.get(key) === entry) audioCache.delete(key); entry.error = err; })
         .finally(() => {
           generating = false;
           const waiters = generationWaiters;
@@ -1261,12 +1285,11 @@
 
   // ---------- Stitched playback ----------
   // Sentences that are ready are joined into one stretch of up to a minute, with short
-  // pauses between them. The phone then starts a new clip about once a minute rather
-  // than every sentence, which removes the gaps and keeps a locked phone playing.
-  // The pauses are part of the audio, so they speed up with the playback speed.
+  // pauses between them, and played through Web Audio (see unlockAudio). The speech is
+  // made at the reading speed, so the pauses are shortened to match.
   const PAUSE = { sentence: 0.16, paragraph: 0.42, heading: 0.6, sceneBreak: 0.8 };
   const MAX_STRETCH_S = 60, MAX_STRETCH_SENTENCES = 40;
-  let stretch = null;          // { my, map: [{ i, start, end }], last, url }
+  let stretch = null;          // { my, map: [{ i, start, end }], last, seconds, startAt }
 
   function pauseAfter(i) {
     const cur = sentences[i], next = sentences[i + 1];
@@ -1276,6 +1299,7 @@
     return PAUSE.sentence;
   }
 
+  // Used by the pronunciation Test button, which plays through the <audio> element.
   function wavFromParts(parts, rate) {
     const length = parts.reduce((n, p) => n + p.length, 0);
     const buf = new ArrayBuffer(44 + length * 2);
@@ -1300,15 +1324,16 @@
     const parts = [], map = [];
     let t = 0, rate = 0, last = idx;
     const silence = s => new Int16Array(Math.round(s * rate));
+    const sceneBreak = PAUSE.sceneBreak / settings.rate;
     for (let i = idx; i < sentences.length; i++) {
       if (i > idx && (t >= MAX_STRETCH_S || i - idx >= MAX_STRETCH_SENTENCES)) break;
       if (i > idx && sleep.mode === 'chapter' && chapterOf(i) !== chapterOf(idx)) break;
       const sent = sentences[i];
       if (!speakable(sent.text)) {
         if (!rate) { map.push({ i, start: t, end: t }); last = i; continue; }
-        parts.push(silence(PAUSE.sceneBreak));
-        map.push({ i, start: t, end: t + PAUSE.sceneBreak });
-        t += PAUSE.sceneBreak; last = i;
+        parts.push(silence(sceneBreak));
+        map.push({ i, start: t, end: t + sceneBreak });
+        t += sceneBreak; last = i;
         continue;
       }
       const d = audioCache.get(`${settings.voiceURI}|${i}`)?.data;
@@ -1318,18 +1343,25 @@
       parts.push(d.pcm);
       map.push({ i, start: t, end: t + len });
       t += len; last = i;
-      const gap = pauseAfter(i);
+      const gap = pauseAfter(i) / settings.rate;
       if (gap) { parts.push(silence(gap)); t += gap; }
     }
     if (!rate) return null;
-    return { url: URL.createObjectURL(wavFromParts(parts, rate)), map, last, seconds: t };
+    const c = audioContext();
+    if (!c) throw new Error('This browser can’t play the downloaded voices. Pick a built-in voice.');
+    const buffer = c.createBuffer(1, parts.reduce((n, p) => n + p.length, 0), rate);
+    const out = buffer.getChannelData(0);
+    let o = 0;
+    for (const p of parts) { for (let k = 0; k < p.length; k++) out[o + k] = p[k] / 32768; o += p.length; }
+    return { buffer, map, last, seconds: t };
   }
 
   async function speakDownloaded(my) {
+    stopSource();
+    keepAudioAlive();
     const key = `${settings.voiceURI}|${idx}`;
     if (!audioCache.get(key)?.data) {
       dbg(`waiting for sentence ${idx + 1} to be made`);
-      keepAudioAlive();
       if (!/Downloading|Starting/.test(els.playerStatus.textContent)) setPlayerStatus('Preparing voice…');
     }
     let built;
@@ -1341,97 +1373,95 @@
       dbg(`could not make audio: ${err.message}`);
       return setPlayerStatus(err.message);
     }
-    if (my !== token || !playing) { if (built) URL.revokeObjectURL(built.url); return; }
+    if (my !== token || !playing) return;
     if (!built) { idx = sentences.length - 1; return advance(); }
-    const previous = stretch;
-    stretch = { my, ...built };
-    dbg(`playing ${built.map.length} sentences as one ${built.seconds.toFixed(0)}s stretch`);
-
-    // Follow along: move the highlight as each sentence in the stretch comes up.
-    audio.ontimeupdate = () => {
-      if (my !== token || !playing || audio.loop) return;
-      const now = audio.currentTime;
-      const at = stretch.map.find(m => now >= m.start && now < m.end + 0.05) || null;
-      if (!at || at.i === idx) return;
-      if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) return goToSleep(at.i);
-      idx = at.i;
-      highlight();
-      savePosition();
-      pruneAudioCache();
-      pumpGeneration();
-    };
-    audio.onended = () => {
+    const c = audioContext();
+    if (c.state !== 'running') c.resume().catch(() => {});
+    const src = c.createBufferSource();
+    src.buffer = built.buffer;
+    src.connect(c.destination);
+    const startAt = c.currentTime + 0.05;
+    stretch = { my, ...built, startAt };
+    source = src;
+    dbg(`playing ${built.map.length} sentences as one ${built.seconds.toFixed(0)}s stretch (sound ${c.state})`);
+    src.onended = () => {
+      if (source !== src) return;
+      source = null;
+      clearInterval(followTimer);
       if (my !== token || !playing) return;
-      dbg(`stretch done (through sentence ${stretch.last + 1})`);
-      idx = stretch.last;
+      dbg(`stretch done (through sentence ${built.last + 1})`);
+      idx = built.last;
       advance();
     };
-    audio.loop = false;
-    audio.src = built.url;
-    audio.playbackRate = settings.rate;
-    if (previous) URL.revokeObjectURL(previous.url);
-    // If nothing starts within a few seconds, say so instead of sitting silently.
-    const watchdog = setTimeout(() => {
-      if (my !== token || !playing || !audio.paused) return;
-      dbg(`audio did not start (readyState ${audio.readyState}, error ${audio.error?.code ?? 'none'})`);
+    src.start(startAt);
+    // Follow along: move the highlight as each sentence in the stretch comes up.
+    followTimer = setInterval(() => follow(my), 200);
+    if (/Preparing voice|ready\.|Waiting for the voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
+    // If the sound hasn't started within a few seconds, say so instead of sitting silently.
+    setTimeout(() => {
+      if (my !== token || !playing || c.state === 'running') return;
+      dbg(`sound did not start: ${playbackState()}`);
       setPlayerStatus('The audio didn’t start. Tap play again; if it keeps happening, tap here for details.');
     }, 6000);
-    try {
-      await audio.play();
-      if (my === token && /Preparing voice|ready\.|Waiting for the voice/.test(els.playerStatus.textContent)) setPlayerStatus('');
-    } catch (err) {
-      clearTimeout(watchdog);
-      if (my !== token) return;
-      dbg(`play() refused: ${err.name} ${err.message}`);
-      stop();
-      return setPlayerStatus(err.name === 'NotAllowedError'
-        ? 'Tap play to continue.'
-        : `This audio couldn’t play (${err.name}). Tap here for details.`);
-    }
     pruneAudioCache();
     pumpGeneration();
   }
 
-  // Stall guard: the Home Screen app sometimes goes quiet while the player still says
-  // it's playing, either with a stretch frozen or while waiting for the next sentence
-  // to be made. Every 2 seconds, check speech is actually moving. A frozen stretch
+  function follow(my) {
+    if (my !== token || !playing || !stretch || !ctx) return;
+    const now = ctx.currentTime - stretch.startAt;
+    const at = stretch.map.find(m => now >= m.start && now < m.end + 0.05) || null;
+    if (!at || at.i === idx) return;
+    if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) return goToSleep(at.i);
+    idx = at.i;
+    highlight();
+    savePosition();
+    pruneAudioCache();
+    pumpGeneration();
+  }
+
+  // Stall guard: if the voice goes quiet while the player still says it's playing,
+  // either with a stretch frozen or while waiting for the next sentence to be made,
+  // notice it. Every 2 seconds, check speech is actually moving. A frozen stretch
   // starts again from the current sentence; a long wait is shown, with details.
-  let lastTime = -1, stuckSince = 0, heardAt = 0, quietReported = 0, recoveries = 0;
+  let lastTime = -1, stuckSince = 0, heardAt = 0, quietReported = 0, recoveries = 0, loopWarned = false;
   function playbackState() {
     const e = audioCache.get(`${settings.voiceURI}|${idx}`);
     const made = !e ? 'not started' : e.data ? 'ready' : 'being made';
     return `sentence ${idx + 1} ${made}; making ${generating}, resting ${!!restTimer}, ` +
-      `silence loop ${audio.loop}, paused ${audio.paused}, at ${audio.currentTime.toFixed(1)}s, ` +
-      `readyState ${audio.readyState}, error ${audio.error?.code ?? 'none'}, screen ${document.visibilityState}`;
+      `speaking ${!!source}, sound ${ctx?.state ?? 'none'} at ${(ctx?.currentTime ?? 0).toFixed(1)}s, ` +
+      `silence loop ${audio.paused ? 'paused' : 'playing'}, screen ${document.visibilityState}`;
   }
   setInterval(() => {
-    if (!playing || !isDownloadable()) { stuckSince = heardAt = quietReported = 0; return; }
+    if (!playing || !isDownloadable()) { stuckSince = heardAt = quietReported = 0; loopWarned = false; return; }
     const now = Date.now();
     if (!heardAt) heardAt = now;
-    const speaking = stretch?.my === token && !audio.loop;
-    if (speaking && !audio.paused && audio.currentTime !== lastTime) {
-      lastTime = audio.currentTime;
+    if (audio.paused && !loopWarned) {
+      loopWarned = true;
+      dbg(`silence loop stopped: ${playbackState()}`);
+      keepAudioAlive();
+    } else if (!audio.paused) loopWarned = false;
+    const t = ctx?.currentTime ?? 0;
+    const speaking = !!source && stretch?.my === token;
+    if (speaking && ctx.state === 'running' && t !== lastTime) {
+      lastTime = t;
       heardAt = now; stuckSince = 0; quietReported = 0;
-      if (audio.currentTime > 5) recoveries = 0;
+      if (t - stretch.startAt > 5) recoveries = 0;
       return;
     }
-    lastTime = audio.currentTime;
+    lastTime = t;
     if (speaking) {
       if (!stuckSince) { stuckSince = now; return; }
       if (now - stuckSince < 4000) return;
       stuckSince = 0;
-      dbg(`audio stuck: ${playbackState()}`);
+      dbg(`sound stuck: ${playbackState()}`);
       if (++recoveries > 3) {
         stop();
         return setPlayerStatus('The audio keeps stopping. Tap play to carry on, or tap here for details.');
       }
-      if (audio.ended) {   // finished, but the "ended" event never came
-        dbg('stretch ended without telling us; moving on');
-        idx = stretch.last;
-        return advance();
-      }
       dbg(`restarting from sentence ${idx + 1} (try ${recoveries})`);
       setPlayerStatus('The audio stopped, so it’s starting again from this sentence. Tap here for details.');
+      ctx.resume().catch(() => {});
       return speakCurrent();
     }
     // Not speaking: waiting for the next sentence to be made.
@@ -1444,9 +1474,7 @@
     }
   }, 2000);
 
-  audio.addEventListener('playing', () => { if (!audio.loop) dbg(`playing sentence ${idx + 1}`); });
-  audio.addEventListener('pause', () => { if (playing && !audio.loop && !audio.ended) dbg('audio paused by the system'); });
-  audio.addEventListener('waiting', () => { if (!audio.loop) dbg('audio waiting for data'); });
+  audio.addEventListener('pause', () => { if (playing && isDownloadable()) dbg('silence loop paused by the system'); });
   audio.addEventListener('error', () => dbg(`audio error code ${audio.error?.code}: ${audio.error?.message || ''}`));
   audio.addEventListener('stalled', () => dbg('audio stalled'));
 
@@ -1473,22 +1501,25 @@
     }
   }
 
-  function silenceAll() {
+  // keepLoop leaves the silence playing, so a queue can carry on with the phone locked.
+  function silenceAll(keepLoop = false) {
     if (synth && (synth.speaking || synth.pending)) synth.cancel();
+    stopSource();
+    if (keepLoop) return;
     audio.onended = null;
     audio.loop = false;
     audio.pause();
   }
 
   // iOS ends a web page's audio session (and soon suspends the page) once its audio
-  // stops. Between sentences, or while the next one is still being made, loop a
-  // moment of silence so playback carries on with the screen locked.
+  // stops, and a Home Screen app can't start it again while locked. So while a
+  // downloaded voice is reading, the element loops a moment of silence throughout.
   function keepAudioAlive() {
     if (audio.loop && !audio.paused) return;
     audio.onended = null;
     audio.loop = true;
-    audio.src = SILENCE;
-    audio.play().catch(() => {});
+    if (audio.src !== SILENCE) audio.src = SILENCE;
+    audio.play().then(() => dbg('silence loop playing'), err => { if (err.name !== 'AbortError') dbg(`silence loop refused: ${err.name}`); });
   }
 
   function speakCurrent() {
@@ -1578,7 +1609,7 @@
     if (idx < sentences.length - 1 && sleepNow(idx + 1)) return goToSleep(idx + 1);
     if (idx < sentences.length - 1) { idx++; speakCurrent(); return; }
     const wasDownloaded = isDownloadable();
-    stop();
+    stop({ keepLoop: wasDownloaded });
     els.text.querySelector('.finish')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     playNextInQueue(wasDownloaded);
   }
@@ -1596,7 +1627,7 @@
     Lists.save();
     const nextId = Lists.data.queue[0];
     const next = nextId && await DB.getWork(nextId);
-    if (!next) return setPlayerStatus(`Finished “${finished}”.`);
+    if (!next) { if (keepAlive) silenceAll(); return setPlayerStatus(`Finished “${finished}”.`); }
     if (keepAlive) keepAudioAlive();   // keeps a locked phone from ending the audio session
     setPlayerStatus(`Finished “${finished}”. Next: “${next.title}” in 8 seconds. `);
     const cancel = document.createElement('a');
@@ -1635,12 +1666,12 @@
     speakCurrent();
   }
 
-  function stop() {
+  function stop({ keepLoop = false } = {}) {
     clearTimeout(miniTimer);
     setMini(false);
     playing = false;
     token++;
-    silenceAll();
+    silenceAll(keepLoop);
     updatePlayButton();
     keepScreenOn(false);
   }
@@ -1850,13 +1881,16 @@
     settings.rate = Number(rate);
     els.rate.value = settings.rate;
     els.rateValue.textContent = `${settings.rate.toFixed(1)}×`;
-    audio.playbackRate = settings.rate;   // downloaded voices change speed immediately
+    audio.playbackRate = settings.rate;   // voice samples follow the speed too
     saveSettings();
     updateSummary();
   }
   setRate(settings.rate);
   els.rate.oninput = () => { setRate(els.rate.value); savePosition(); };
-  els.rate.onchange = () => { if (playing && !isDownloadable()) speakCurrent(); };
+  els.rate.onchange = () => {
+    if (isDownloadable()) clearAudioCache();   // downloaded voices are made at the speed, so remake them
+    if (playing) speakCurrent();
+  };
   els.voiceSelect.onchange = () => {
     settings.voiceURI = els.voiceSelect.value;
     saveSettings();

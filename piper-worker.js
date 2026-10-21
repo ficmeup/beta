@@ -82,10 +82,44 @@ async function loadVoice(id, onProgress) {
   return voice;
 }
 
+// Speeds speech up (or slows it down) without changing its pitch. Piper's own speed
+// setting falls well short (asking for 2x gives about 1.5x), so this uses WSOLA, the
+// same method browsers use for playback speed: short overlapping windows, each one
+// nudged to where it lines up best with the one before, so the joins don't click.
+function changeSpeed(input, speed, rate) {
+  if (Math.abs(speed - 1) < 0.01) return input;
+  const N = Math.round(rate * 0.03) & ~1;     // 30 ms windows
+  const H = N / 2;                            // half overlapping
+  const seek = Math.round(rate * 0.012);      // look up to 12 ms either side
+  const win = new Float32Array(N);
+  for (let k = 0; k < N; k++) win[k] = 0.5 - 0.5 * Math.cos((2 * Math.PI * k) / N);
+  const src = new Float32Array(input.length + N + 2 * seek);   // zero padding at the end
+  src.set(input);
+  const outLen = Math.ceil(input.length / speed);
+  const out = new Float32Array(outLen + N);
+  let prev = 0;
+  for (let k = 0; k < N; k++) out[k] = src[k] * win[k];
+  for (let o = H; o < outLen; o += H) {
+    const target = Math.min(Math.round(o * speed), src.length - N - seek - 1);
+    const natural = prev + H;                 // where the last window would carry on
+    let best = target, bestScore = -Infinity;
+    for (let d = -seek; d <= seek; d++) {
+      const start = target + d;
+      if (start < 0) continue;
+      let score = 0;
+      for (let k = 0; k < H; k += 2) score += src[natural + k] * src[start + k];
+      if (score > bestScore) { bestScore = score; best = start; }
+    }
+    for (let k = 0; k < N; k++) out[o + k] += src[best + k] * win[k];
+    prev = best;
+  }
+  return out.subarray(0, outLen);
+}
+
 // Sentences are joined into longer stretches by the app, so each one comes back as
-// raw 16-bit samples with the model's own leading and trailing silence cut off.
-// The app then puts in pauses of its own, which follow the playback speed.
-function trimmedPcm(chunks, rate) {
+// raw 16-bit samples with the model's own leading and trailing silence cut off,
+// already at the reading speed. The app then puts in pauses of its own.
+function trimmedPcm(chunks, rate, speed = 1) {
   const all = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
   let o = 0;
   for (const c of chunks) { all.set(c, o); o += c.length; }
@@ -95,15 +129,16 @@ function trimmedPcm(chunks, rate) {
   while (b > a && Math.abs(all[b]) < loud) b--;
   a = Math.max(0, a - Math.round(rate * 0.015));
   b = Math.min(all.length - 1, b + Math.round(rate * 0.04));
-  const pcm = new Int16Array(Math.max(0, b - a + 1));
+  const sped = changeSpeed(all.subarray(a, b + 1), speed, rate);
+  const pcm = new Int16Array(sped.length);
   for (let i = 0; i < pcm.length; i++) {
-    const v = Math.max(-1, Math.min(1, all[a + i]));
+    const v = Math.max(-1, Math.min(1, sped[i]));
     pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
   }
   return pcm;
 }
 
-async function speak(text) {
+async function speak(text, speed = 1) {
   const { session, config } = voice;
   const mod = await getPhonemizer();
   phonemizerUses++;
@@ -125,7 +160,7 @@ async function speak(text) {
     const { output } = await session.run(feeds);
     chunks.push(output.data);
   }
-  const pcm = trimmedPcm(chunks, rate);
+  const pcm = trimmedPcm(chunks, rate, speed);
   return { pcm, rate, seconds: pcm.length / rate };
 }
 
@@ -139,7 +174,7 @@ self.onmessage = async ({ data }) => {
     } else if (data.type === 'generate') {
       const started = performance.now();
       await loadVoice(data.voice);
-      const { pcm, rate, seconds } = await speak(data.text);
+      const { pcm, rate, seconds } = await speak(data.text, data.speed || 1);
       self.postMessage({ type: 'audio', id, pcm, rate, seconds, ms: Math.round(performance.now() - started) }, [pcm.buffer]);
     }
   } catch (err) {
