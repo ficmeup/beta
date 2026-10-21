@@ -1173,12 +1173,14 @@
   // start anything new. So from the tap on play, the <audio> element loops a moment
   // of silence the whole time (holding the phone's audio session open), and the voice
   // plays through Web Audio, which mixes in sound without loading anything.
+  // 30 seconds long: the loop plays the whole time, and a short clip would make the
+  // phone restart it many times a second, which keeps it busy and warm.
   const SILENCE = (() => {
-    const n = 2400, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const rate = 8000, n = rate * 30, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
     const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
     str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
     v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-    v.setUint32(24, 24000, true); v.setUint32(28, 48000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
     str(36, 'data'); v.setUint32(40, n * 2, true);
     return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
   })();
@@ -1724,7 +1726,12 @@
   function updateMediaSession() {
     if (!('mediaSession' in navigator) || !work) return;
     try {
-      navigator.mediaSession.metadata = new MediaMetadata({ title: work.title, artist: work.author || 'Fic Me Up' });
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: work.title,
+        artist: work.author || 'Fic Me Up',
+        album: 'Fic Me Up',
+        artwork: [{ src: new URL('icons/icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' }],
+      });
     } catch {}
   }
   if ('mediaSession' in navigator) {
