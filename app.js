@@ -1040,6 +1040,7 @@
   let closedWhileReading = false;
   try { closedWhileReading = !!localStorage.getItem(READING_KEY); localStorage.removeItem(READING_KEY); } catch {}
   if (closedWhileReading) dbg('— the app was closed while reading (by the phone, or swiped away) and has started again —');
+  dbg(`Fic Me Up ${(document.body.innerHTML.match(/Version (\d+)/) || [])[0] || ''} started${IS_BETA ? ' (beta)' : ''}`);
   const markReading = on => { try { on ? localStorage.setItem(READING_KEY, '1') : localStorage.removeItem(READING_KEY); } catch {} };
 
   // ---------- Downloadable voices (Kokoro and Piper) ----------
