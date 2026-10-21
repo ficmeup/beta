@@ -153,28 +153,54 @@ function trimmedPcm(chunks, rate, speed = 1) {
   return pcm;
 }
 
+// Long sentences are spoken in parts. The memory Piper needs grows with how much it
+// says in one go (about 20 MB per second of speech) and is never given back, so one
+// long run-on sentence could get the app closed on a phone. Parts end where a
+// speaker would pause anyway (comma, semicolon, dash), and Piper's own short
+// silence at the end of each part becomes that pause.
+const MAX_PART = 160;
+function parts(text) {
+  const out = [];
+  let rest = text.trim();
+  while (rest.length > MAX_PART) {
+    const head = rest.slice(0, MAX_PART);
+    let cut = -1;
+    for (const sep of [', ', '; ', ': ', ' — ', ' – ', ' - ', '… ', ') ', '" ', '” ']) {
+      const at = head.lastIndexOf(sep);
+      if (at > 40) cut = Math.max(cut, at + 1);
+    }
+    if (cut < 0) { const space = head.lastIndexOf(' '); cut = space > 40 ? space : MAX_PART; }
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
 async function speak(text, speed = 1) {
   const { session, config } = voice;
-  const mod = await getPhonemizer();
-  phonemizerUses++;
-  printed.length = 0;
-  mod.callMain(['-l', config.espeak.voice, '--input', JSON.stringify([{ text }]), '--espeak_data', '/espeak-ng-data']);
   const rate = config.audio.sample_rate;
   const { noise_scale, length_scale, noise_w } = config.inference;
   const { model, rest } = splitSpeed(speed);
   const multiSpeaker = Object.keys(config.speaker_id_map || {}).length > 0;
   const chunks = [];
-  for (const line of printed) {
-    const ids = JSON.parse(line).phoneme_ids;
-    if (!ids?.length) continue;
-    const feeds = {
-      input: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
-      input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
-      scales: new ort.Tensor('float32', Float32Array.from([noise_scale, length_scale / model, noise_w]), [3]),
-    };
-    if (multiSpeaker) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
-    const { output } = await session.run(feeds);
-    chunks.push(output.data);
+  for (const part of parts(text)) {
+    const mod = await getPhonemizer();
+    phonemizerUses++;
+    printed.length = 0;
+    mod.callMain(['-l', config.espeak.voice, '--input', JSON.stringify([{ text: part }]), '--espeak_data', '/espeak-ng-data']);
+    for (const line of printed) {
+      const ids = JSON.parse(line).phoneme_ids;
+      if (!ids?.length) continue;
+      const feeds = {
+        input: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
+        input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
+        scales: new ort.Tensor('float32', Float32Array.from([noise_scale, length_scale / model, noise_w]), [3]),
+      };
+      if (multiSpeaker) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
+      const { output } = await session.run(feeds);
+      chunks.push(output.data);
+    }
   }
   const pcm = trimmedPcm(chunks, rate, rest);
   return { pcm, rate, seconds: pcm.length / rate };
