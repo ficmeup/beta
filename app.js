@@ -692,6 +692,10 @@
     els.readerView.hidden = false;
     els.player.hidden = false;
     highlight(true);
+    if (closedWhileReading) {
+      closedWhileReading = false;
+      setPlayerStatus('Fic Me Up was closed while reading. Tap here for details.');
+    }
   }
 
   async function closeWork() {
@@ -1020,13 +1024,23 @@
   }
 
   // A short log of what the voice is doing; tap the status line under the player to see it.
-  const debugLines = [];
+  // It's kept on the phone as well, so if iOS closes the app mid-story the log survives.
+  const LOG_KEY = `${NS}fic-listener-debug-log`;
+  const READING_KEY = `${NS}fic-listener-was-reading`;
+  const debugLines = (() => { try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { return []; } })();
   function dbg(msg) {
     const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     debugLines.push(`${t} ${msg}`);
-    if (debugLines.length > 60) debugLines.shift();
+    if (debugLines.length > 150) debugLines.shift();
     els.debugLog.textContent = debugLines.join('\n');
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(debugLines)); } catch {}
   }
+  els.debugLog.textContent = debugLines.join('\n');
+  // Still marked as reading from last time = the app was closed mid-story.
+  let closedWhileReading = false;
+  try { closedWhileReading = !!localStorage.getItem(READING_KEY); localStorage.removeItem(READING_KEY); } catch {}
+  if (closedWhileReading) dbg('— the app was closed while reading (by the phone, or swiped away) and has started again —');
+  const markReading = on => { try { on ? localStorage.setItem(READING_KEY, '1') : localStorage.removeItem(READING_KEY); } catch {} };
 
   // ---------- Downloadable voices (Kokoro and Piper) ----------
   // Each engine runs in its own worker and downloads its voice files once.
@@ -1197,12 +1211,13 @@
 
   // ---------- Buffering ----------
   // Sentences are made one at a time, ahead of the one being read. The buffer fills
-  // quickly to about 2 minutes, then carries on in gentle bursts up to about 10, so a
-  // locked phone (where iOS may pause this work) still has plenty to play, and the
-  // phone isn't running flat out the whole time it's in your hand.
+  // quickly to about 2 minutes, then carries on gently up to about 10, resting between
+  // sentences, locked or not. iOS closes a background app that keeps the processor
+  // busy for minutes on end, and resting also keeps the phone cool.
   const FAST_AHEAD_S = 120;      // fill this much as fast as possible
   const MAX_AHEAD_S = 600;       // then keep going, gently, up to this
-  const REST_MS = 350;           // pause between sentences once past the fast part
+  const REST_MS = 350;           // shortest pause between sentences once past the fast part
+  const REST_RATIO = 1.5;        // rest 1.5x as long as the last sentence took to make
   const MAX_AHEAD_SENTENCES = 400;
   const audioCache = new Map();  // `${voice}|${index}` -> { promise, data: { pcm, rate } }
   let generating = false, restTimer = null;
@@ -1245,7 +1260,7 @@
       const key = `${voice}|${i}`;
       if (audioCache.has(key)) continue;
       generating = true;
-      const entry = {};
+      const entry = {}, started = performance.now();
       // Made at the reading speed, so speeding up doesn't raise the voice's pitch.
       entry.promise = choice.engine.generate(Pron.apply(sentences[i].text), choice.voice, settings.rate).then(d => (entry.data = d));
       audioCache.set(key, entry);
@@ -1256,9 +1271,10 @@
           const waiters = generationWaiters;
           generationWaiters = [];
           waiters.forEach(w => w(entry.error));
-          // Past the fast part, rest between sentences while the screen is on.
-          if (document.visibilityState === 'visible' && secondsAhead() > FAST_AHEAD_S) {
-            restTimer = setTimeout(() => { restTimer = null; pumpGeneration(); }, REST_MS);
+          // Past the fast part, rest between sentences.
+          if (secondsAhead() > FAST_AHEAD_S) {
+            const rest = Math.max(REST_MS, (performance.now() - started) * REST_RATIO);
+            restTimer = setTimeout(() => { restTimer = null; pumpGeneration(); }, rest);
           } else {
             pumpGeneration();
           }
@@ -1266,11 +1282,6 @@
       return;
     }
   }
-  document.addEventListener('visibilitychange', () => {
-    // Hidden or locked: skip the rests and make as much as iOS allows.
-    if (document.visibilityState === 'hidden' && restTimer) { clearTimeout(restTimer); restTimer = null; pumpGeneration(); }
-  });
-
   async function audioFor(i) {
     const key = `${settings.voiceURI}|${i}`;
     while (!audioCache.has(key)) {
@@ -1424,7 +1435,7 @@
   // either with a stretch frozen or while waiting for the next sentence to be made,
   // notice it. Every 2 seconds, check speech is actually moving. A frozen stretch
   // starts again from the current sentence; a long wait is shown, with details.
-  let lastTime = -1, stuckSince = 0, heardAt = 0, quietReported = 0, recoveries = 0, loopWarned = false;
+  let lastTime = -1, stuckSince = 0, heardAt = 0, quietReported = 0, recoveries = 0, loopWarned = false, lastBeat = 0;
   function playbackState() {
     const e = audioCache.get(`${settings.voiceURI}|${idx}`);
     const made = !e ? 'not started' : e.data ? 'ready' : 'being made';
@@ -1433,9 +1444,13 @@
       `silence loop ${audio.paused ? 'paused' : 'playing'}, screen ${document.visibilityState}`;
   }
   setInterval(() => {
-    if (!playing || !isDownloadable()) { stuckSince = heardAt = quietReported = 0; loopWarned = false; return; }
+    if (!playing || !isDownloadable()) { stuckSince = heardAt = quietReported = lastBeat = 0; loopWarned = false; return; }
     const now = Date.now();
     if (!heardAt) heardAt = now;
+    if (now - lastBeat >= 30000) {   // a regular note, so the log shows when and how things stopped
+      lastBeat = now;
+      dbg(`reading: ${playbackState()}; ${secondsAhead().toFixed(0)}s made ahead`);
+    }
     if (audio.paused && !loopWarned) {
       loopWarned = true;
       dbg(`silence loop stopped: ${playbackState()}`);
@@ -1658,6 +1673,7 @@
     if (isDownloadable()) unlockAudio();
     else if (!synth) return setPlayerStatus('This browser can’t use built-in voices. Pick a Piper voice.');
     playing = true;
+    markReading(true);
     updatePlayButton();
     keepScreenOn(!isDownloadable());
     keptOpen = false;
@@ -1670,6 +1686,7 @@
     clearTimeout(miniTimer);
     setMini(false);
     playing = false;
+    markReading(false);
     token++;
     silenceAll(keepLoop);
     updatePlayButton();
