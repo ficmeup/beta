@@ -472,6 +472,12 @@
     setStatus(inWork()
       ? `That’s a link, not the ${story()} itself, and the app can’t download pages. Open the link, then download the ${story()} as an EPUB and use Open a file here, or use the Listen bookmark.`
       : 'That’s a link to a fic, not the fic itself: the app never downloads from AO3. Open the link, tap Entire Work → Download → EPUB, then use Open a file here. Or use the Listen bookmark on the fic.');
+    // a button straight to the fic, so it can be downloaded or sent with the Listen bookmark
+    const a = document.createElement('a');
+    a.className = 'secondary-btn status-action';
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = inWork() ? 'Open the link ↗' : 'Open on AO3 ↗';
+    els.status.append(a);
   }
 
   els.pasteAdd.onclick = async () => {

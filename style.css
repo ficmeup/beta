@@ -239,6 +239,7 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
 .add-row { display: flex; gap: 10px; flex-wrap: wrap; padding: 18px 0 6px; }
 #status { margin: 12px 0 0; font-size: 15px; color: var(--dim); }
 #status:empty { display: none; }
+#status .status-action { display: table; margin-top: 10px; text-decoration: none; }
 
 /* ---------- library ---------- */
 .library { list-style: none; margin: 0; padding: 0; }
