@@ -1054,6 +1054,14 @@
   try { closedWhileReading = !!localStorage.getItem(READING_KEY); localStorage.removeItem(READING_KEY); } catch {}
   if (closedWhileReading) dbg('— the app was closed while reading (by the phone, or swiped away) and has started again —');
   dbg(`Fic Me Up ${(document.body.innerHTML.match(/Version (\d+)/) || [])[0] || ''} started${IS_BETA ? ' (beta)' : ''}`);
+  // If the page's own code freezes, timers stop; when they run again, note how long.
+  let lastTick = Date.now();
+  setInterval(() => {
+    const now = Date.now(), gap = now - lastTick;
+    if (gap > 3000 && document.visibilityState === 'visible') dbg(`screen code was stuck for ${(gap / 1000).toFixed(0)}s`);
+    lastTick = now;
+  }, 1000);
+  document.addEventListener('visibilitychange', () => { lastTick = Date.now(); });
   const markReading = on => { try { on ? localStorage.setItem(READING_KEY, '1') : localStorage.removeItem(READING_KEY); } catch {} };
 
   // ---------- Downloadable voices (Kokoro and Piper) ----------
@@ -1155,9 +1163,10 @@
     function generate(text, voice, speed = 1) {
       const run = async () => {
         await load(voice);
+        const slow = setTimeout(() => dbg(`${name} still making one sentence after 10s (${text.length} characters)`), 10000);
         return request({ type: 'generate', text, voice, speed }, GENERATE_MS, false).catch(err => {
           throw new Error(`${name}: ${err.message}.${hint}`);
-        });
+        }).finally(() => clearTimeout(slow));
       };
       const result = chain.then(run, run);
       chain = result.catch(() => {});
@@ -1800,9 +1809,11 @@
   // ---------- Wiring ----------
 
   els.backBtn.onclick = closeWork;
-  els.playBtn.onclick = () => (playing ? stop() : play());
-  els.prevBtn.onclick = () => jump(idx - 1);
-  els.nextBtn.onclick = () => jump(idx + 1);
+  // Each control tap goes in the log, so a freeze shows what was tapped just before it.
+  const tapped = what => dbg(`tap: ${what} (sentence ${idx + 1}, ${playing ? 'playing' : 'stopped'})`);
+  els.playBtn.onclick = () => { tapped(playing ? 'pause' : 'play'); playing ? stop() : play(); };
+  els.prevBtn.onclick = () => { tapped('previous'); jump(idx - 1); };
+  els.nextBtn.onclick = () => { tapped('next'); jump(idx + 1); };
   els.previewBtn.onclick = preview;
   els.clipAdd.onclick = addFromClipboard;
   els.promptPreviewBtn.onclick = preview;
@@ -1823,10 +1834,10 @@
       updateDownloadPrompt();
     }
   };
-  els.back30Btn.onclick = () => skipSeconds(-30);
-  els.fwd30Btn.onclick = () => skipSeconds(30);
+  els.back30Btn.onclick = () => { tapped('back 30'); skipSeconds(-30); };
+  els.fwd30Btn.onclick = () => { tapped('forward 30'); skipSeconds(30); };
   els.playerStatus.onclick = () => { els.debugLog.hidden = !els.debugLog.hidden; };
-  els.chapterSelect.onchange = () => { jump(chapterStarts[Number(els.chapterSelect.value)], true); savePosition(true); };
+  els.chapterSelect.onchange = () => { tapped('chapter'); jump(chapterStarts[Number(els.chapterSelect.value)], true); savePosition(true); };
   els.text.onclick = e => {
     const span = e.target.closest('.s');
     if (!span || window.getSelection()?.toString()) return;
