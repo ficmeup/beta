@@ -1854,8 +1854,21 @@
     };
     otherCopies.postMessage('opened');
   } catch {}
-  // Closing the app (not just leaving it) stops the sound too.
-  addEventListener('pagehide', e => { if (!e.persisted && playing) { stop(); if (ctx) ctx.close().catch(() => {}); } });
+  // Closing the app (swiping it away) stops the sound and clears the lock screen's
+  // player, so it doesn't stay there looking as if it's still playing. iOS only lets
+  // the page know if it gets to say goodbye; when it doesn't, the next copy that opens
+  // silences this one (above).
+  function releaseSound() {
+    if (playing) stop();
+    try { audio.pause(); audio.removeAttribute('src'); audio.load(); } catch {}
+    if (ctx) { const old = ctx; ctx = null; old.onstatechange = null; old.close().catch(() => {}); }
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; } catch {}
+    }
+  }
+  addEventListener('pagehide', releaseSound);
+  // back from the guide (the page was kept, not reloaded): the lock screen gets the story again
+  addEventListener('pageshow', e => { if (e.persisted && work) updateMediaSession(); });
 
   function updatePlayButton() {
     // SVG elements have no .hidden property in Safari, so set the attribute itself.
