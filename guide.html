@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=47">
+<link rel="stylesheet" href="style.css?v=48">
 <script data-goatcounter="https://ficmeup.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </head>
 <body>
@@ -34,8 +34,9 @@
   </div>
   <nav>
     <div class="roomtog" role="group" aria-label="Room">
-      <button type="button" data-room="dark">Dark</button>
+      <button type="button" data-room="dark">Space</button>
       <button type="button" data-room="paper">Paper</button>
+      <button type="button" data-room="work">Work</button>
     </div>
   </nav>
 </header>
@@ -71,7 +72,8 @@
       <li><b>Download a fic from AO3.</b> On the fic, tap <b>Entire Work</b>, then <b>Download</b> → <b>EPUB</b>. Tap <b>Open a file</b>, find the fic and go your merry way. :)</li>
       <li><b>Similarly, other books from your collection</b> can be listened to through Fic Me Up (it won’t work on books bought through Books, Kindle and so on). You know what, you’re allowed to listen to your school or work docs too.</li>
       <li><b>Copy the text, from any website.</b> In Safari, tap <b>aA</b> → <b>Show Reader</b> (on AO3, tap <b>Entire Work</b> first if it has chapters). Press and hold on the text, tap <b>Select All</b>, then <b>Copy</b>. In Fic Me Up, tap <b>Paste</b>.</li>
-      <li><b>On a computer: the Listen bookmark.</b>
+      <li><b>On a computer. Use the Listen bookmark.</b></li>
+      <li><b>On iPhones.</b>
         <ol>
           <li><button class="secondary-btn" id="bmCopy" type="button">Copy the Listen code</button></li>
           <li>Open any web page → <b>Share</b> → <b>Add Bookmark</b>. Name the bookmark <b>Listen</b> and save it to the folder <b>Favorites</b>.</li>
@@ -123,9 +125,9 @@
     <div class="sechead"><h3>06 · What it can’t do</h3></div>
     <ul>
       <li>Safari lets websites use a basic set of built-in voices only. Premium, Enhanced and Siri voices you’ve downloaded in Settings don’t appear.</li>
-      <li>Kokoro doesn’t run on iPhone or iPad. The full model runs out of memory; the smaller one takes 2.5 seconds to make each second of speech.</li>
       <li>The app may not work properly on older phones, and it may drain the battery faster on them. I’m trying to sort this out, but there’s only so much I can do.</li>
       <li>A story added on your phone isn’t on your computer, and on iPhone the Home Screen app and Safari don’t share a library. Queue, playlists and notes stay on the device too, until sign-in arrives, which I’m working on.</li>
+      <li>If your battery is low or your phone is warming up, please wait till the battery is charged and the phone has cooled down to use the app.</li>
       <li>Fic Me Up isn’t made by or connected to AO3 or the Organization for Transformative Works.</li>
     </ul>
   </section>
@@ -160,7 +162,7 @@
   </footer>
 </main>
 
-<script src="listen.js?v=47"></script>
+<script src="listen.js?v=48"></script>
 <script>
   (function () {
     // the same Listen code the app gives, pointing at the app next to this guide
@@ -179,7 +181,7 @@
       document.documentElement.setAttribute('data-room', room);
       buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.room === room)); });
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', room === 'paper' ? '#D8D8D3' : '#050505');
+      if (meta) meta.setAttribute('content', ({ dark: '#050505', paper: '#D8D8D3', work: '#FFFFFF' })[room] || '#050505');
     }
     apply(document.documentElement.getAttribute('data-room'));
     buttons.forEach(function (b) {

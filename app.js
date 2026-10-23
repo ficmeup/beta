@@ -97,14 +97,15 @@
     try { localStorage.setItem(`${NS}fic-listener-settings`, JSON.stringify(settings)); } catch {}
   }
 
-  // ---------- Rooms (dark / paper) ----------
+  // ---------- Rooms: Space (stored as 'dark'), Paper, Work ----------
   // The page follows the device until someone picks a room; then their pick wins.
   const roomButtons = document.querySelectorAll('.roomtog button');
+  const ROOM_COLOURS = { dark: '#050505', paper: '#D8D8D3', work: '#FFFFFF' };
   let roomChosen = window.__roomStored;
   function applyRoom(room) {
     document.documentElement.setAttribute('data-room', room);
     roomButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.room === room)));
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', room === 'paper' ? '#D8D8D3' : '#050505');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', ROOM_COLOURS[room] || ROOM_COLOURS.dark);
   }
   applyRoom(document.documentElement.getAttribute('data-room') || 'dark');
   roomButtons.forEach(b => b.addEventListener('click', () => {
