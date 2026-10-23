@@ -237,7 +237,13 @@ input[type=text]:focus, textarea:focus { outline: none; border-color: var(--ink)
 }
 
 .add-row { display: flex; gap: 10px; flex-wrap: wrap; padding: 18px 0 6px; }
-#status { margin: 14px 0 0; font-size: 15px; color: var(--dim); }
+/* messages stand out: the same tint as the sentence being read, with an edge */
+#status {
+  margin: 14px 0 0; padding: 12px 14px; font-size: 15px; color: var(--ink);
+  background: hsl(var(--h1) 85% 50% / 0.18); border-left: 3px solid hsl(var(--h1) 85% 60%);
+}
+:root[data-room="paper"] #status { background: hsl(var(--h1) 80% 55% / 0.2); border-left-color: hsl(var(--h1) 70% 45%); }
+:root[data-room="work"] #status { background: rgba(0,0,0,0.06); border-left-color: var(--ink); }
 #status:empty { display: none; }
 #status .status-action { display: table; margin-top: 10px; text-decoration: none; }
 
