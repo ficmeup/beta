@@ -478,6 +478,7 @@
     a.href = url; a.target = '_blank'; a.rel = 'noopener';
     a.textContent = inWork() ? 'Open the link ↗' : 'Open on AO3 ↗';
     els.status.append(a);
+    els.status.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 
   els.pasteAdd.onclick = async () => {
