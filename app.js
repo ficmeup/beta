@@ -842,6 +842,9 @@
     els.chapterSelect.value = chapterOf(idx);
     const r = highlighted.getBoundingClientRect();
     const bottomLimit = window.innerHeight - els.player.offsetHeight - 20;
+    // With the player open over most of the screen there's no room to show the
+    // sentence, and scrolling every sentence would pull the page out from under you.
+    if (!forceScroll && bottomLimit < 160) return;
     if (forceScroll || r.top < 70 || r.bottom > bottomLimit) {
       highlighted.scrollIntoView({ block: 'center', behavior: forceScroll ? 'auto' : 'smooth' });
     }
@@ -1704,6 +1707,7 @@
   }
 
   function play() {
+    try { otherCopies?.postMessage('playing'); } catch {}
     if (!sentences.length) return;
     if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) {   // timer ran out while paused
       sleep = { mode: 'off' };
@@ -1736,6 +1740,23 @@
     updatePlayButton();
     keepScreenOn(false);
   }
+
+  // Only one copy of the app plays. An older copy can keep going after the app is
+  // swiped away; when a copy opens or starts playing, any other copy goes quiet.
+  let otherCopies = null;
+  try {
+    otherCopies = new BroadcastChannel('fic-me-up-playing');
+    otherCopies.onmessage = e => {
+      if (!playing && !ctx) return;
+      dbg(`another copy of the app ${e.data === 'opened' ? 'opened' : 'started playing'}, so this one stopped`);
+      if (playing) stop();
+      silenceAll(false);
+      if (ctx) { const old = ctx; ctx = null; old.onstatechange = null; old.close().catch(() => {}); }
+    };
+    otherCopies.postMessage('opened');
+  } catch {}
+  // Closing the app (not just leaving it) stops the sound too.
+  addEventListener('pagehide', e => { if (!e.persisted && playing) { stop(); if (ctx) ctx.close().catch(() => {}); } });
 
   function updatePlayButton() {
     // SVG elements have no .hidden property in Safari, so set the attribute itself.

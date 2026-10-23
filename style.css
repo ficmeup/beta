@@ -313,8 +313,14 @@ a.secondary-btn.kofi:hover { background: var(--kofi); color: var(--ground); }
   border-top: 1px solid var(--hair);
   background: var(--scrim);
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  /* never taller than the screen: with settings and the log open it scrolls inside,
+     so the controls can't end up pushed off the top where nothing can reach them */
+  max-height: calc(100vh - var(--topbar-h, 52px) - 8px);
+  max-height: calc(100dvh - var(--topbar-h, 52px) - 8px);
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 }
 .controls { display: flex; justify-content: center; align-items: center; gap: 10px; }
+.player .controls { position: sticky; top: -12px; z-index: 1; margin-top: -12px; padding-top: 12px; background: var(--ground); }
 .icon-btn {
   display: grid; place-items: center; width: 44px; height: 44px;
   background: none; border: none; border-radius: 0; cursor: pointer; color: var(--dim);
