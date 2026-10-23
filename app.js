@@ -455,6 +455,25 @@
     renderLibrary();
   };
 
+  // A shared fic (from Share on a fic, or a playlist) is only a title and a link: the
+  // app never downloads from AO3, so there's no story text in it. Spot that, open the
+  // fic if it's already here, and otherwise say how to add it.
+  function linkOnly(text) {
+    const m = text.match(/https?:\/\/\S+/);
+    if (!m) return null;
+    const rest = text.replace(m[0], '').trim();
+    return rest.length <= 300 && rest.split('\n').filter(l => l.trim()).length <= 3 ? m[0] : null;
+  }
+  async function pastedLink(url) {
+    const id = url.match(/archiveofourown\.org\/works\/(\d+)/)?.[1];
+    const works = await DB.allWorks();
+    const have = works.find(w => w.sourceUrl && (w.sourceUrl === url || (id && w.sourceUrl.includes(`/works/${id}`))));
+    if (have) { setStatus(`“${have.title}” is already in your library.`); openWork(have.id); return; }
+    setStatus(inWork()
+      ? `That’s a link, not the ${story()} itself, and the app can’t download pages. Open the link, then download the ${story()} as an EPUB and use Open a file here, or use the Listen bookmark.`
+      : 'That’s a link to a fic, not the fic itself: the app never downloads from AO3. Open the link, tap Entire Work → Download → EPUB, then use Open a file here. Or use the Listen bookmark on the fic.');
+  }
+
   els.pasteAdd.onclick = async () => {
     const text = els.pasteText.value.trim();
     if (!text) return setStatus('Paste some text first.');
@@ -463,6 +482,8 @@
       els.pasteText.value = els.pasteTitle.value = '';
       return addPasted(text);
     }
+    const link = linkOnly(text);
+    if (link) { els.pasteText.value = ''; return pastedLink(link); }
     try {
       const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || `Pasted ${story()}`));
       track('added-typed-paste');
@@ -558,8 +579,8 @@
         const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
         setStatus(`Reading ${name}…`);
         parsed = await Parsers.fromFile(new File([bytes], name));
-      } else if (/^https?:\/\/\S+$/.test(text)) {
-        return setStatus(`That’s a link. The app can’t download pages, so copy the ${story()}’s text instead: open the link in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy, then Paste here.`);
+      } else if (linkOnly(text)) {
+        return pastedLink(linkOnly(text));
       } else if (text.length > 80) {
         const lines = text.split('\n');
         const at = lines.findIndex(l => l.trim());
