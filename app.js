@@ -8,7 +8,7 @@
   // are shared, so testers don't download them twice.
   const IS_BETA = /^\/beta(\/|$)/.test(location.pathname);
   // Every build has a number (shown on the beta). The live app shows its release name
-  // instead: FV1, then FV1.1, FV1.2… for small updates.
+  // instead: F.V1, then F.V1.1, F.V1.2… for small updates.
   const versionLabel = document.getElementById('versionLabel');
   const BUILD = (versionLabel?.textContent.match(/\d+/) || [''])[0];
   const RELEASE = versionLabel?.dataset.release || '';
