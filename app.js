@@ -7,6 +7,12 @@
   // notes, so a test version can't damage anyone's real library. Downloaded voices
   // are shared, so testers don't download them twice.
   const IS_BETA = /^\/beta(\/|$)/.test(location.pathname);
+  // Every build has a number (shown on the beta). The live app shows its release name
+  // instead: FV1, then FV1.1, FV1.2… for small updates.
+  const versionLabel = document.getElementById('versionLabel');
+  const BUILD = (versionLabel?.textContent.match(/\d+/) || [''])[0];
+  const RELEASE = versionLabel?.dataset.release || '';
+  if (versionLabel && !IS_BETA && RELEASE) versionLabel.textContent = RELEASE;
   const NS = IS_BETA ? 'beta-' : '';
   if (IS_BETA) document.documentElement.classList.add('beta');
 
@@ -1135,7 +1141,7 @@
   let closedWhileReading = false;
   try { closedWhileReading = !!localStorage.getItem(READING_KEY); localStorage.removeItem(READING_KEY); } catch {}
   if (closedWhileReading) dbg('— the app was closed while reading (by the phone, or swiped away) and has started again —');
-  dbg(`Fic Me Up ${(document.body.innerHTML.match(/Version (\d+)/) || [])[0] || ''} started${IS_BETA ? ' (beta)' : ''}`);
+  dbg(`Fic Me Up ${IS_BETA || !RELEASE ? `Version ${BUILD}` : `${RELEASE} (build ${BUILD})`} started${IS_BETA ? ' (beta)' : ''}`);
   // A summary of what this copy has saved, a few seconds after it starts, so the
   // beta and the main app can be compared when one misbehaves and the other doesn't.
   setTimeout(async () => {
