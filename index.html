@@ -31,11 +31,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 <link rel="preload" href="fonts/steps-mono.otf" as="font" type="font/otf" crossorigin>
-<link rel="stylesheet" href="style.css?v=47">
+<link rel="stylesheet" href="style.css?v=52">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
-<script src="parsers.js?v=47" defer></script>
-<script src="listen.js?v=47" defer></script>
-<script src="app.js?v=47" defer></script>
+<script src="parsers.js?v=52" defer></script>
+<script src="listen.js?v=52" defer></script>
+<script src="app.js?v=52" defer></script>
 <script data-goatcounter="https://ficmeup.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </head>
 <body>
@@ -49,10 +49,11 @@
     <span class="beta-tag mono">Beta</span>
   </div>
   <nav>
-    <a href="guide.html?v=47">Guide</a>
+    <a href="guide.html?v=52">Guide</a>
     <div class="roomtog" role="group" aria-label="Room">
-      <button type="button" data-room="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-room="dark" aria-pressed="false">Space</button>
       <button type="button" data-room="paper" aria-pressed="false">Paper</button>
+      <button type="button" data-room="work" aria-pressed="false">Work</button>
     </div>
   </nav>
 </header>
@@ -60,12 +61,12 @@
 <main id="libraryView" class="page">
   <section class="open">
     <img class="logo" src="icons/logo.png" width="900" height="764" alt="fic me up!">
-    <h2>Stories from AO3, read aloud on your own device.</h2>
-    <p>Open a downloaded work, or send one straight from AO3 with the Listen bookmark. Nothing is uploaded; your library stays on this device.</p>
+    <h2><span class="not-work">Stories from AO3</span><span class="only-work">Documents</span>, read aloud on your own device.</h2>
+    <p><span class="not-work">Open a downloaded work, or send one straight from AO3 with the Listen bookmark.</span><span class="only-work">Open a downloaded file, or send a web page here with the Listen bookmark.</span> Nothing is uploaded; your library stays on this device.</p>
   </section>
 
   <section>
-    <div class="sechead"><h3>Add a story</h3><span class="mono">EPUB · PDF · DOCX · Web</span></div>
+    <div class="sechead"><h3>Add a <span class="not-work">story</span><span class="only-work">document</span></h3><span class="mono">EPUB · PDF · DOCX · Web</span></div>
     <div class="add-row">
       <label class="primary-btn file-btn">
         Open a file
@@ -73,9 +74,9 @@
                accept=".epub,.html,.htm,.pdf,.txt,.md,.docx,application/epub+zip,text/html,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
       </label>
       <button type="button" id="clipAdd" class="secondary-btn">Paste</button>
-      <a class="secondary-btn" href="https://archiveofourown.org/" target="_blank" rel="noopener">Find a fic on AO3 ↗</a>
+      <a class="secondary-btn not-work" href="https://archiveofourown.org/" target="_blank" rel="noopener">Find a fic on AO3 ↗</a>
     </div>
-    <p class="hint"><b>Open a file</b>: an EPUB downloaded from AO3, or a PDF, Word (.docx), HTML or text file. <b>Paste</b>: text copied from any web page (in Safari: aA → Show Reader, then press and hold → Select All → Copy). <a href="guide.html?v=47#add">More ways</a></p>
+    <p class="hint"><b>Open a file</b>: an EPUB<span class="not-work"> downloaded from AO3</span>, or a PDF, Word (.docx), HTML or text file. <b>Paste</b>: text copied from any web page (in Safari: aA → Show Reader, then press and hold → Select All → Copy). <a href="guide.html?v=52#add">More ways</a></p>
 
     <details id="pasteBox">
       <summary>Paste text</summary>
@@ -85,7 +86,7 @@
     </details>
 
     <details id="bookmarkletBox">
-      <summary>The Listen bookmark for AO3</summary>
+      <summary>The Listen bookmark<span class="not-work"> for AO3</span></summary>
       <div id="bookmarkletBody"></div>
     </details>
 
@@ -125,12 +126,12 @@
     <div id="libTabs" class="tabs" role="tablist"></div>
     <div id="viewActions" class="view-actions"></div>
     <ul id="library" class="library"></ul>
-    <p id="emptyLibrary" class="hint">No stories yet. Open a file from AO3 above.</p>
+    <p id="emptyLibrary" class="hint">No <span class="not-work">stories</span><span class="only-work">documents</span> yet. Open a file<span class="not-work"> from AO3</span> above.</p>
   </section>
 
   <footer class="foot mono">
     <span>Fic Me Up is free. <a class="kofi" href="https://ko-fi.com/thisandthatspace" target="_blank" rel="noopener">Support it on Ko-fi</a></span>
-    <span>Version 47-test · <a href="guide.html?v=47">Guide</a></span>
+    <span>Version 52 · <a href="guide.html?v=52">Guide</a></span>
   </footer>
 </main>
 

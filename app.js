@@ -97,20 +97,23 @@
     try { localStorage.setItem(`${NS}fic-listener-settings`, JSON.stringify(settings)); } catch {}
   }
 
-  // ---------- Rooms (dark / paper) ----------
+  // ---------- Rooms: Space (stored as 'dark'), Paper, Work ----------
   // The page follows the device until someone picks a room; then their pick wins.
   const roomButtons = document.querySelectorAll('.roomtog button');
+  const ROOM_COLOURS = { dark: '#050505', paper: '#D8D8D3', work: '#FFFFFF' };
   let roomChosen = window.__roomStored;
   function applyRoom(room) {
     document.documentElement.setAttribute('data-room', room);
     roomButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.room === room)));
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', room === 'paper' ? '#D8D8D3' : '#050505');
+    els.pasteText.placeholder = `Paste the ${room === 'work' ? 'document' : 'story'}. Lines that start with “Chapter” become chapters.`;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', ROOM_COLOURS[room] || ROOM_COLOURS.dark);
   }
   applyRoom(document.documentElement.getAttribute('data-room') || 'dark');
   roomButtons.forEach(b => b.addEventListener('click', () => {
     roomChosen = b.dataset.room;
     try { localStorage.setItem('fic-listener-room', roomChosen); } catch {}
     applyRoom(roomChosen);
+    if (!els.libraryView.hidden) renderLibrary();
   }));
   try {
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
@@ -154,7 +157,7 @@
   // ---------- Library ----------
 
   async function addWork(parsed, sourceUrl) {
-    if (!parsed.chapters.length) throw new Error('No story text was found in that file.');
+    if (!parsed.chapters.length) throw new Error(`No ${story()} text was found in that file.`);
     const works = await DB.allWorks();
     const url = sourceUrl || parsed.url || '';
     const existing = url && works.find(w => w.sourceUrl === url);
@@ -212,7 +215,7 @@
       return w && { t: w.title, a: w.author || '', u: w.sourceUrl || '' };
     }).filter(Boolean);
     const url = `${location.origin}${location.pathname}#playlist=${b64encode(JSON.stringify({ v: 1, n: pl.name, i: items }))}`;
-    const text = `“${pl.name}”: ${items.length} ${items.length === 1 ? 'work' : 'works'} from AO3, as a Fic Me Up playlist.`;
+    const text = `“${pl.name}”: ${items.length} ${items.length === 1 ? 'work' : 'works'}${inWork() ? '' : ' from AO3'}, as a Fic Me Up playlist.`;
     try {
       if (navigator.share) { await navigator.share({ title: pl.name, text, url }); return; }
     } catch (err) { if (err.name === 'AbortError') return; }
@@ -233,7 +236,7 @@
       return w ? w.id : { t: String(x.t || 'Untitled'), a: String(x.a || ''), u: /^https:\/\/archiveofourown\.org\/works\/\d+$/.test(x.u) ? x.u : '' };
     });
     const have = items.filter(x => !isStub(x)).length;
-    if (!confirm(`Add the shared playlist “${data.n}”? ${items.length} works; ${have} already in your library. The others link to AO3 so you can add them.`)) return;
+    if (!confirm(`Add the shared playlist “${data.n}”? ${items.length} works; ${have} already in your library. ${inWork() ? 'The others come with links' : 'The others link to AO3'} so you can add them.`)) return;
     const pl = { id: newId(), name: String(data.n || 'Shared playlist').slice(0, 80), items };
     Lists.data.playlists.push(pl);
     Lists.save();
@@ -276,7 +279,7 @@
       acts.push(btn('Share', () => sharePlaylist(pl)));
       acts.push(btn('Rename', () => { const n = prompt('Playlist name', pl.name)?.trim(); if (n) { pl.name = n; Lists.save(); renderLibrary(); } }));
       acts.push(btn('Delete playlist', () => {
-        if (!confirm(`Delete the playlist “${pl.name}”? The stories stay in your library.`)) return;
+        if (!confirm(`Delete the playlist “${pl.name}”? The ${story(true)} stay in your library.`)) return;
         Lists.data.playlists = Lists.data.playlists.filter(x => x !== pl); Lists.save(); libView = 'all'; renderLibrary();
       }));
     }
@@ -297,12 +300,12 @@
   // Shares the fic's AO3 page (or an AO3 search for it), never the text.
   async function shareWork(w) {
     const url = isAo3(w) ? ao3Link(w) : w.sourceUrl;
-    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}${isAo3(w) ? ', on AO3' : ''}`;
+    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}${isAo3(w) && !inWork() ? ', on AO3' : ''}`;
     try {
       if (navigator.share) { await navigator.share({ title: w.title, text, url }); return; }
     } catch (err) { if (err.name === 'AbortError') return; }
-    try { await navigator.clipboard.writeText(url); setStatus(`AO3 link for “${w.title}” copied.`); }
-    catch { prompt('Copy the AO3 link:', url); }
+    try { await navigator.clipboard.writeText(url); setStatus(`${inWork() ? 'Link' : 'AO3 link'} for “${w.title}” copied.`); }
+    catch { prompt(inWork() ? 'Copy the link:' : 'Copy the AO3 link:', url); }
   }
 
   function openSheet(w) {
@@ -330,7 +333,7 @@
       Lists.save(); renderLibrary(); setStatus(`Made “${name}” with “${w.title}” in it.`);
     });
     if (isAo3(w) || w.sourceUrl) add('Share', () => shareWork(w));
-    if (isAo3(w)) add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
+    if (isAo3(w) && !inWork()) add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
     else if (w.sourceUrl) add('Open the original page', () => window.open(w.sourceUrl, '_blank', 'noopener'));
     add('Remove from library', async () => {
       if (!confirm(`Remove “${w.title}” from your library? Your notes on it go too.`)) return;
@@ -354,7 +357,10 @@
     const b = document.createElement('b');
     b.textContent = w.title;
     const meta = document.createElement('span');
-    meta.textContent = [String(i + 1).padStart(2, '0'), w.author, 'Not in your library · add it from AO3'].filter(Boolean).join(' · ');
+    meta.textContent = [String(i + 1).padStart(2, '0'), w.author, 'Not in your library'].filter(Boolean).join(' · ');
+    const fromAo3 = document.createElement('span');
+    fromAo3.className = 'not-work'; fromAo3.textContent = ' · add it from AO3';
+    meta.append(fromAo3);
     a.append(b, meta);
     const rm = document.createElement('button');
     rm.className = 'delete';
@@ -423,11 +429,13 @@
     }));
     const empty = !items.length;
     els.emptyLibrary.hidden = !empty;
-    els.emptyLibrary.textContent = libView === 'notes' ? 'No notes yet.'
-      : libView === 'queue' ? 'The queue is empty. Use ⋯ on a story to add it.'
-      : libView.startsWith('pl:') ? 'This playlist is empty. Use ⋯ on a story to add it.'
-      : 'No stories yet. Open a file from AO3 above.';
-    els.libraryCount.textContent = works.length ? `${works.length} ${works.length === 1 ? 'story' : 'stories'}` : '';
+    const emptyText = libView === 'notes' ? 'No notes yet.'
+      : libView === 'queue' ? `The queue is empty. Use ⋯ on a ${story()} to add it.`
+      : libView.startsWith('pl:') ? `This playlist is empty. Use ⋯ on a ${story()} to add it.`
+      : null;
+    if (emptyText) els.emptyLibrary.textContent = emptyText;
+    else els.emptyLibrary.innerHTML = `No ${story(true)} yet. Open a file<span class="not-work"> from AO3</span> above.`;
+    els.libraryCount.textContent = works.length ? `${works.length} ${story(works.length !== 1)}` : '';
   }
 
   els.fileInput.onchange = async () => {
@@ -456,7 +464,7 @@
       return addPasted(text);
     }
     try {
-      const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || 'Pasted story'));
+      const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || `Pasted ${story()}`));
       track('added-typed-paste');
       els.pasteText.value = els.pasteTitle.value = '';
       setStatus(`Added “${work.title}”.`);
@@ -551,7 +559,7 @@
         setStatus(`Reading ${name}…`);
         parsed = await Parsers.fromFile(new File([bytes], name));
       } else if (/^https?:\/\/\S+$/.test(text)) {
-        return setStatus('That’s a link. The app can’t download pages, so copy the story’s text instead: open the link in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy, then Paste here.');
+        return setStatus(`That’s a link. The app can’t download pages, so copy the ${story()}’s text instead: open the link in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy, then Paste here.`);
       } else if (text.length > 80) {
         const lines = text.split('\n');
         const at = lines.findIndex(l => l.trim());
@@ -559,7 +567,7 @@
         const short = firstLine.length <= 80;
         parsed = Parsers.fromText(short ? lines.slice(at + 1).join('\n') : text, short ? firstLine : 'Pasted text');
       } else {
-        if (kinds.some(k => k.startsWith('image/'))) return setStatus('That’s a picture, not text. Copy the story’s text instead.');
+        if (kinds.some(k => k.startsWith('image/'))) return setStatus(`That’s a picture, not text. Copy the ${story()}’s text instead.`);
         return setStatus('No text to paste. A copied book or file can’t be pasted into a web app: in Books or Files, tap Share → Save to Files, then use Open a file here. For a web page, copy its text: in Safari, aA → Show Reader, press and hold, Select All, Copy.');
       }
       const work = await addWork(parsed, url);
@@ -587,7 +595,7 @@
         <li><button class="secondary-btn" id="bmCopy">Copy the Listen code</button></li>
         <li>Open any web page → <b>Share</b> → <b>Add Bookmark</b>. Name the bookmark <b>Listen</b> and save it to the folder <b>Favorites</b>.</li>
         <li>Go to <b>Bookmarks</b> → <b>Favorites</b> and <b>Edit</b> the <b>Listen</b> bookmark. Replace the address with the code copied above. Tap <b>Done</b>.</li>
-        <li>Open AO3 in your browser → tap <b>Entire Work</b> → tap <b>⋯</b> → click <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>.</li>
+        <li><span class="not-work">Open AO3 in your browser → tap <b>Entire Work</b> → </span><span class="only-work">Open the page in your browser → </span>tap <b>⋯</b> → click <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>.</li>
       </ol>`;
     body.querySelector('#bmLink').href = code;
     body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
@@ -682,10 +690,12 @@
       els.ao3Link.hidden = false;
       els.ao3Link.href = ao3Link(work);
       els.ao3Link.textContent = work.sourceUrl ? 'AO3 ↗' : 'Find on AO3 ↗';
+      els.ao3Link.classList.add('not-work');
     } else {
       els.ao3Link.hidden = !work.sourceUrl;
       els.ao3Link.href = work.sourceUrl || '#';
       els.ao3Link.textContent = 'Source ↗';
+      els.ao3Link.classList.remove('not-work');
     }
     els.backBtn.hidden = false;
     els.libraryView.hidden = true;
@@ -742,6 +752,8 @@
   }
 
   // AO3 works get AO3 links; anything else links to its original page, if it has one.
+  const inWork = () => document.documentElement.dataset.room === 'work';   // Work room: no AO3 mentions
+  const story = (plural = false) => inWork() ? (plural ? 'documents' : 'document') : (plural ? 'stories' : 'story');   // Work says “document”
   const isAo3 = w => /archiveofourown\.org/.test(w.sourceUrl || '') || !!w.info?.length;
   const ao3Link = w => w.sourceUrl
     || `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${encodeURIComponent(`"${w.title}" ${w.author || ''}`.trim())}`;
@@ -809,12 +821,13 @@
     const onAo3 = !!work.sourceUrl;
     f.innerHTML = `
       <p class="mono">End of work</p>
-      <p>The writer sees kudos and comments on AO3, and nothing from this app.</p>
+      <p class="not-work">The writer sees kudos and comments on AO3, and nothing from this app.</p>
       <div class="cta">
         <a class="primary-btn" target="_blank" rel="noopener"></a>
         <a class="secondary-btn kofi" target="_blank" rel="noopener" href="https://ko-fi.com/thisandthatspace">Support Fic Me Up</a>
       </div>`;
     const a = f.querySelector('.primary-btn');
+    a.classList.add('not-work');
     a.href = ao3Link(work);
     a.textContent = onAo3 ? 'Leave kudos on AO3' : 'Find it on AO3';
     return f;
@@ -829,6 +842,9 @@
     els.chapterSelect.value = chapterOf(idx);
     const r = highlighted.getBoundingClientRect();
     const bottomLimit = window.innerHeight - els.player.offsetHeight - 20;
+    // With the player open over most of the screen there's no room to show the
+    // sentence, and scrolling every sentence would pull the page out from under you.
+    if (!forceScroll && bottomLimit < 160) return;
     if (forceScroll || r.top < 70 || r.bottom > bottomLimit) {
       highlighted.scrollIntoView({ block: 'center', behavior: forceScroll ? 'auto' : 'smooth' });
     }
@@ -1041,6 +1057,14 @@
   try { closedWhileReading = !!localStorage.getItem(READING_KEY); localStorage.removeItem(READING_KEY); } catch {}
   if (closedWhileReading) dbg('— the app was closed while reading (by the phone, or swiped away) and has started again —');
   dbg(`Fic Me Up ${(document.body.innerHTML.match(/Version (\d+)/) || [])[0] || ''} started${IS_BETA ? ' (beta)' : ''}`);
+  // If the page's own code freezes, timers stop; when they run again, note how long.
+  let lastTick = Date.now();
+  setInterval(() => {
+    const now = Date.now(), gap = now - lastTick;
+    if (gap > 3000 && document.visibilityState === 'visible') dbg(`screen code was stuck for ${(gap / 1000).toFixed(0)}s`);
+    lastTick = now;
+  }, 1000);
+  document.addEventListener('visibilitychange', () => { lastTick = Date.now(); });
   const markReading = on => { try { on ? localStorage.setItem(READING_KEY, '1') : localStorage.removeItem(READING_KEY); } catch {} };
 
   // ---------- Downloadable voices (Kokoro and Piper) ----------
@@ -1142,9 +1166,10 @@
     function generate(text, voice, speed = 1) {
       const run = async () => {
         await load(voice);
+        const slow = setTimeout(() => dbg(`${name} still making one sentence after 10s (${text.length} characters)`), 10000);
         return request({ type: 'generate', text, voice, speed }, GENERATE_MS, false).catch(err => {
           throw new Error(`${name}: ${err.message}.${hint}`);
-        });
+        }).finally(() => clearTimeout(slow));
       };
       const result = chain.then(run, run);
       chain = result.catch(() => {});
@@ -1682,6 +1707,7 @@
   }
 
   function play() {
+    try { otherCopies?.postMessage('playing'); } catch {}
     if (!sentences.length) return;
     if (sleep.mode === 'time' && Date.now() >= sleep.endsAt) {   // timer ran out while paused
       sleep = { mode: 'off' };
@@ -1714,6 +1740,23 @@
     updatePlayButton();
     keepScreenOn(false);
   }
+
+  // Only one copy of the app plays. An older copy can keep going after the app is
+  // swiped away; when a copy opens or starts playing, any other copy goes quiet.
+  let otherCopies = null;
+  try {
+    otherCopies = new BroadcastChannel('fic-me-up-playing');
+    otherCopies.onmessage = e => {
+      if (!playing && !ctx) return;
+      dbg(`another copy of the app ${e.data === 'opened' ? 'opened' : 'started playing'}, so this one stopped`);
+      if (playing) stop();
+      silenceAll(false);
+      if (ctx) { const old = ctx; ctx = null; old.onstatechange = null; old.close().catch(() => {}); }
+    };
+    otherCopies.postMessage('opened');
+  } catch {}
+  // Closing the app (not just leaving it) stops the sound too.
+  addEventListener('pagehide', e => { if (!e.persisted && playing) { stop(); if (ctx) ctx.close().catch(() => {}); } });
 
   function updatePlayButton() {
     // SVG elements have no .hidden property in Safari, so set the attribute itself.
@@ -1787,9 +1830,11 @@
   // ---------- Wiring ----------
 
   els.backBtn.onclick = closeWork;
-  els.playBtn.onclick = () => (playing ? stop() : play());
-  els.prevBtn.onclick = () => jump(idx - 1);
-  els.nextBtn.onclick = () => jump(idx + 1);
+  // Each control tap goes in the log, so a freeze shows what was tapped just before it.
+  const tapped = what => dbg(`tap: ${what} (sentence ${idx + 1}, ${playing ? 'playing' : 'stopped'})`);
+  els.playBtn.onclick = () => { tapped(playing ? 'pause' : 'play'); playing ? stop() : play(); };
+  els.prevBtn.onclick = () => { tapped('previous'); jump(idx - 1); };
+  els.nextBtn.onclick = () => { tapped('next'); jump(idx + 1); };
   els.previewBtn.onclick = preview;
   els.clipAdd.onclick = addFromClipboard;
   els.promptPreviewBtn.onclick = preview;
@@ -1810,10 +1855,10 @@
       updateDownloadPrompt();
     }
   };
-  els.back30Btn.onclick = () => skipSeconds(-30);
-  els.fwd30Btn.onclick = () => skipSeconds(30);
+  els.back30Btn.onclick = () => { tapped('back 30'); skipSeconds(-30); };
+  els.fwd30Btn.onclick = () => { tapped('forward 30'); skipSeconds(30); };
   els.playerStatus.onclick = () => { els.debugLog.hidden = !els.debugLog.hidden; };
-  els.chapterSelect.onchange = () => { jump(chapterStarts[Number(els.chapterSelect.value)], true); savePosition(true); };
+  els.chapterSelect.onchange = () => { tapped('chapter'); jump(chapterStarts[Number(els.chapterSelect.value)], true); savePosition(true); };
   els.text.onclick = e => {
     const span = e.target.closest('.s');
     if (!span || window.getSelection()?.toString()) return;
