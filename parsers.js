@@ -312,7 +312,7 @@ const Parsers = (() => {
       throw new Error('This format can’t be read. Save it as .docx, PDF or plain text first (Share → Export or Save As).');
     }
     if (/\.(mobi|azw3?)$/.test(name)) {
-      throw new Error(document.documentElement.dataset.room === 'work' ? 'Kindle files (MOBI/AZW3) aren’t supported. Use the EPUB version instead; it’s the same story.' : 'Kindle files (MOBI/AZW3) aren’t supported. Download the EPUB version from AO3 instead; it’s the same story.');
+      throw new Error(document.documentElement.dataset.room === 'work' ? 'Kindle files (MOBI/AZW3) aren’t supported. Use the EPUB version instead; it’s the same document.' : 'Kindle files (MOBI/AZW3) aren’t supported. Download the EPUB version from AO3 instead; it’s the same story.');
     }
     if (file.type && !file.type.startsWith('text/') && !/\.(txt|text|md)$/.test(name)) {
       throw new Error('This isn’t a file Fic Me Up can read. EPUB, PDF, Word (.docx), HTML and text files work.');

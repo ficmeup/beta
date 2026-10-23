@@ -105,6 +105,7 @@
   function applyRoom(room) {
     document.documentElement.setAttribute('data-room', room);
     roomButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.room === room)));
+    els.pasteText.placeholder = `Paste the ${room === 'work' ? 'document' : 'story'}. Lines that start with “Chapter” become chapters.`;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', ROOM_COLOURS[room] || ROOM_COLOURS.dark);
   }
   applyRoom(document.documentElement.getAttribute('data-room') || 'dark');
@@ -112,6 +113,7 @@
     roomChosen = b.dataset.room;
     try { localStorage.setItem('fic-listener-room', roomChosen); } catch {}
     applyRoom(roomChosen);
+    if (!els.libraryView.hidden) renderLibrary();
   }));
   try {
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
@@ -155,7 +157,7 @@
   // ---------- Library ----------
 
   async function addWork(parsed, sourceUrl) {
-    if (!parsed.chapters.length) throw new Error('No story text was found in that file.');
+    if (!parsed.chapters.length) throw new Error(`No ${story()} text was found in that file.`);
     const works = await DB.allWorks();
     const url = sourceUrl || parsed.url || '';
     const existing = url && works.find(w => w.sourceUrl === url);
@@ -277,7 +279,7 @@
       acts.push(btn('Share', () => sharePlaylist(pl)));
       acts.push(btn('Rename', () => { const n = prompt('Playlist name', pl.name)?.trim(); if (n) { pl.name = n; Lists.save(); renderLibrary(); } }));
       acts.push(btn('Delete playlist', () => {
-        if (!confirm(`Delete the playlist “${pl.name}”? The stories stay in your library.`)) return;
+        if (!confirm(`Delete the playlist “${pl.name}”? The ${story(true)} stay in your library.`)) return;
         Lists.data.playlists = Lists.data.playlists.filter(x => x !== pl); Lists.save(); libView = 'all'; renderLibrary();
       }));
     }
@@ -428,12 +430,12 @@
     const empty = !items.length;
     els.emptyLibrary.hidden = !empty;
     const emptyText = libView === 'notes' ? 'No notes yet.'
-      : libView === 'queue' ? 'The queue is empty. Use ⋯ on a story to add it.'
-      : libView.startsWith('pl:') ? 'This playlist is empty. Use ⋯ on a story to add it.'
+      : libView === 'queue' ? `The queue is empty. Use ⋯ on a ${story()} to add it.`
+      : libView.startsWith('pl:') ? `This playlist is empty. Use ⋯ on a ${story()} to add it.`
       : null;
     if (emptyText) els.emptyLibrary.textContent = emptyText;
-    else els.emptyLibrary.innerHTML = 'No stories yet. Open a file<span class="not-work"> from AO3</span> above.';
-    els.libraryCount.textContent = works.length ? `${works.length} ${works.length === 1 ? 'story' : 'stories'}` : '';
+    else els.emptyLibrary.innerHTML = `No ${story(true)} yet. Open a file<span class="not-work"> from AO3</span> above.`;
+    els.libraryCount.textContent = works.length ? `${works.length} ${story(works.length !== 1)}` : '';
   }
 
   els.fileInput.onchange = async () => {
@@ -462,7 +464,7 @@
       return addPasted(text);
     }
     try {
-      const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || 'Pasted story'));
+      const work = await addWork(Parsers.fromText(text, els.pasteTitle.value.trim() || `Pasted ${story()}`));
       track('added-typed-paste');
       els.pasteText.value = els.pasteTitle.value = '';
       setStatus(`Added “${work.title}”.`);
@@ -557,7 +559,7 @@
         setStatus(`Reading ${name}…`);
         parsed = await Parsers.fromFile(new File([bytes], name));
       } else if (/^https?:\/\/\S+$/.test(text)) {
-        return setStatus('That’s a link. The app can’t download pages, so copy the story’s text instead: open the link in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy, then Paste here.');
+        return setStatus(`That’s a link. The app can’t download pages, so copy the ${story()}’s text instead: open the link in Safari, tap aA → Show Reader, press and hold the text, Select All, Copy, then Paste here.`);
       } else if (text.length > 80) {
         const lines = text.split('\n');
         const at = lines.findIndex(l => l.trim());
@@ -565,7 +567,7 @@
         const short = firstLine.length <= 80;
         parsed = Parsers.fromText(short ? lines.slice(at + 1).join('\n') : text, short ? firstLine : 'Pasted text');
       } else {
-        if (kinds.some(k => k.startsWith('image/'))) return setStatus('That’s a picture, not text. Copy the story’s text instead.');
+        if (kinds.some(k => k.startsWith('image/'))) return setStatus(`That’s a picture, not text. Copy the ${story()}’s text instead.`);
         return setStatus('No text to paste. A copied book or file can’t be pasted into a web app: in Books or Files, tap Share → Save to Files, then use Open a file here. For a web page, copy its text: in Safari, aA → Show Reader, press and hold, Select All, Copy.');
       }
       const work = await addWork(parsed, url);
@@ -751,6 +753,7 @@
 
   // AO3 works get AO3 links; anything else links to its original page, if it has one.
   const inWork = () => document.documentElement.dataset.room === 'work';   // Work room: no AO3 mentions
+  const story = (plural = false) => inWork() ? (plural ? 'documents' : 'document') : (plural ? 'stories' : 'story');   // Work says “document”
   const isAo3 = w => /archiveofourown\.org/.test(w.sourceUrl || '') || !!w.info?.length;
   const ao3Link = w => w.sourceUrl
     || `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${encodeURIComponent(`"${w.title}" ${w.author || ''}`.trim())}`;
