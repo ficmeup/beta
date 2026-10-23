@@ -750,33 +750,82 @@
     renderLibrary();
   }
 
+  // The whole story is split into sentences up front, but only the chapter being read
+  // and the ones either side of it are put on the page. A long fic (a million
+  // characters) all on the page made every font, text size or screen change re-lay
+  // out the lot, which froze iPhones for seconds at a time.
+  let shownChapters = null;   // [first, last] chapter on the page
   function renderWork() {
     sentences = [];
     chapterStarts = [];
-    const frag = document.createDocumentFragment();
-    const addSentence = (parent, text, chapter) => {
-      const span = document.createElement('span');
-      span.className = 's';
-      span.textContent = text;
-      span.dataset.i = sentences.length;
-      sentences.push({ text, el: span, chapter });
-      parent.append(span, ' ');
-    };
-    frag.append(...renderWorkExtras());
+    let para = 0;
     work.chapters.forEach((ch, c) => {
       chapterStarts.push(sentences.length);
-      const h = document.createElement('h2');
-      if (ch.paragraphs.length) addSentence(h, ch.title, c);
-      else h.textContent = ch.title;   // an empty chapter's title is shown, not read
-      frag.append(h);
-      for (const para of ch.paragraphs) {
-        const p = document.createElement('p');
-        for (const text of splitSentences(para)) addSentence(p, text, c);
-        frag.append(p);
+      // the title is read too, unless the chapter is empty
+      if (ch.paragraphs.length) sentences.push({ text: ch.title, el: null, chapter: c, para: para++, heading: true });
+      for (const p of ch.paragraphs) {
+        for (const text of splitSentences(p)) sentences.push({ text, el: null, chapter: c, para, heading: false });
+        para++;
       }
     });
-    frag.append(renderFinish());
-    els.text.replaceChildren(frag);
+    shownChapters = null;
+    highlighted = null;
+    // work info and notes stay put at the top; only the chapters below them change
+    chaptersBox = document.createElement('div');
+    chaptersBox.className = 'chapters';
+    els.text.replaceChildren(...renderWorkExtras(), chaptersBox);
+  }
+  let chaptersBox = null;
+
+  function renderChapters(center) {
+    const last = work.chapters.length - 1;
+    const c0 = Math.max(0, center - 1), c1 = Math.min(last, center + 1);
+    for (const s of sentences) s.el = null;
+    const frag = document.createDocumentFragment();
+    if (c0 > 0) frag.append(chapterButton(c0 - 1, 'Previous chapter'));
+    for (let c = c0; c <= c1; c++) {
+      const start = chapterStarts[c], end = c < last ? chapterStarts[c + 1] : sentences.length;
+      if (start === end) {   // an empty chapter's title is shown, not read
+        const h = document.createElement('h2');
+        h.textContent = work.chapters[c].title;
+        h.dataset.chapter = c;
+        frag.append(h);
+        continue;
+      }
+      let parent = null, para = -1;
+      for (let i = start; i < end; i++) {
+        const s = sentences[i];
+        if (s.para !== para) {
+          para = s.para;
+          parent = document.createElement(s.heading ? 'h2' : 'p');
+          if (s.heading) parent.dataset.chapter = c;
+          frag.append(parent);
+        }
+        const span = document.createElement('span');
+        span.className = 's';
+        span.textContent = s.text;
+        span.dataset.i = i;
+        s.el = span;
+        parent.append(span, ' ');
+      }
+    }
+    frag.append(c1 < last ? chapterButton(c1 + 1, 'Next chapter') : renderFinish());
+    chaptersBox.replaceChildren(frag);
+    shownChapters = [c0, c1];
+    highlighted = null;
+  }
+  // Reading by eye past the chapters on the page: show the next (or previous) ones.
+  function chapterButton(c, label) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'secondary-btn chapter-step';
+    b.textContent = `${label}: ${work.chapters[c].title}`;
+    b.onclick = () => {
+      renderChapters(c);
+      if (sentences[idx]?.el) sentences[idx].el.classList.add('current'), highlighted = sentences[idx].el;
+      els.text.querySelector(`h2[data-chapter="${c}"]`)?.scrollIntoView({ block: 'start' });
+    };
+    return b;
   }
 
   // AO3 works get AO3 links; anything else links to its original page, if it has one.
@@ -864,6 +913,8 @@
   let highlighted = null;
   function highlight(forceScroll = false) {
     highlighted?.classList.remove('current');
+    // the sentence's chapter isn't on the page yet: put it there
+    if (sentences[idx] && !sentences[idx].el) { renderChapters(chapterOf(idx)); forceScroll = true; }
     highlighted = sentences[idx]?.el || null;
     if (!highlighted) return;
     highlighted.classList.add('current');
@@ -1399,8 +1450,8 @@
   function pauseAfter(i) {
     const cur = sentences[i], next = sentences[i + 1];
     if (!next) return 0;
-    if (cur.el.parentElement.tagName === 'H2') return PAUSE.heading;
-    if (cur.el.parentElement !== next.el.parentElement) return PAUSE.paragraph;
+    if (cur.heading) return PAUSE.heading;
+    if (cur.para !== next.para) return PAUSE.paragraph;
     return PAUSE.sentence;
   }
 
