@@ -1057,6 +1057,26 @@
   try { closedWhileReading = !!localStorage.getItem(READING_KEY); localStorage.removeItem(READING_KEY); } catch {}
   if (closedWhileReading) dbg('— the app was closed while reading (by the phone, or swiped away) and has started again —');
   dbg(`Fic Me Up ${(document.body.innerHTML.match(/Version (\d+)/) || [])[0] || ''} started${IS_BETA ? ' (beta)' : ''}`);
+  // A summary of what this copy has saved, a few seconds after it starts, so the
+  // beta and the main app can be compared when one misbehaves and the other doesn't.
+  setTimeout(async () => {
+    try {
+      const works = await DB.allWorks();
+      const size = w => JSON.stringify(w).length;
+      const big = works.map(w => `${Math.round(size(w) / 1000)}k chars, ${w.chapters?.length || 0} ch`).sort().slice(0, 6).join('; ');
+      const keys = Object.keys(localStorage);
+      const lsChars = keys.reduce((n, k) => n + (localStorage.getItem(k) || '').length, 0);
+      const topKeys = keys.map(k => [k, (localStorage.getItem(k) || '').length]).sort((a, b) => b[1] - a[1]).slice(0, 3)
+        .map(([k, n]) => `${k} ${Math.round(n / 1000)}k`).join(', ');
+      let cached = '?';
+      try { cached = String((await (await caches.open('piper-voices-v1')).keys()).length); } catch {}
+      let est = '';
+      try { const e = await navigator.storage.estimate(); est = `, storage ${Math.round(e.usage / 1e6)} MB of ${Math.round(e.quota / 1e6)} MB`; } catch {}
+      dbg(`saved here: ${works.length} works (${big}); pronunciations ${Pron.mine.length} mine + ${Pron.shared.length} shared; ` +
+          `${keys.length} settings keys, ${Math.round(lsChars / 1000)}k chars (${topKeys}); Piper voices saved ${cached}${est}; ` +
+          `settings ${JSON.stringify(settings)}, room ${document.documentElement.dataset.room}`);
+    } catch (err) { dbg(`saved-data summary failed: ${err.message}`); }
+  }, 4000);
   // If the page's own code freezes, timers stop; when they run again, note how long.
   let lastTick = Date.now();
   setInterval(() => {
