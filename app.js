@@ -1961,9 +1961,12 @@
   } catch {}
   // Keep the story clear of the player, whatever height it currently is.
   try {
-    new ResizeObserver(() => {
+    const playerSize = new ResizeObserver(() => {
       document.documentElement.style.setProperty('--player-h', `${els.player.offsetHeight}px`);
-    }).observe(els.player);
+      // taller than the screen allows: it scrolls, and the controls stay pinned on top
+      els.player.classList.toggle('tall', els.player.scrollHeight > els.player.clientHeight + 1);
+    });
+    for (const el of [els.player, els.settingsPanel, els.debugLog]) playerSize.observe(el);
   } catch {}
 
   function setRate(rate) {
