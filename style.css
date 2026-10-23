@@ -59,6 +59,10 @@
   --head:  var(--read);
   color-scheme: light;
 }
+/* Work never mentions AO3: .not-work hides in Work, .only-work shows only there */
+:root:not([data-room="work"]) .only-work { display: none !important; }
+:root[data-room="work"] .not-work,
+:root[data-room="work"] .work-info { display: none !important; }
 :root[data-room="work"] #field,
 :root[data-room="work"] .open .logo { display: none; }
 :root[data-room="work"] body { font-size: 16px; }

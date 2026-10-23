@@ -213,7 +213,7 @@
       return w && { t: w.title, a: w.author || '', u: w.sourceUrl || '' };
     }).filter(Boolean);
     const url = `${location.origin}${location.pathname}#playlist=${b64encode(JSON.stringify({ v: 1, n: pl.name, i: items }))}`;
-    const text = `“${pl.name}”: ${items.length} ${items.length === 1 ? 'work' : 'works'} from AO3, as a Fic Me Up playlist.`;
+    const text = `“${pl.name}”: ${items.length} ${items.length === 1 ? 'work' : 'works'}${inWork() ? '' : ' from AO3'}, as a Fic Me Up playlist.`;
     try {
       if (navigator.share) { await navigator.share({ title: pl.name, text, url }); return; }
     } catch (err) { if (err.name === 'AbortError') return; }
@@ -234,7 +234,7 @@
       return w ? w.id : { t: String(x.t || 'Untitled'), a: String(x.a || ''), u: /^https:\/\/archiveofourown\.org\/works\/\d+$/.test(x.u) ? x.u : '' };
     });
     const have = items.filter(x => !isStub(x)).length;
-    if (!confirm(`Add the shared playlist “${data.n}”? ${items.length} works; ${have} already in your library. The others link to AO3 so you can add them.`)) return;
+    if (!confirm(`Add the shared playlist “${data.n}”? ${items.length} works; ${have} already in your library. ${inWork() ? 'The others come with links' : 'The others link to AO3'} so you can add them.`)) return;
     const pl = { id: newId(), name: String(data.n || 'Shared playlist').slice(0, 80), items };
     Lists.data.playlists.push(pl);
     Lists.save();
@@ -298,12 +298,12 @@
   // Shares the fic's AO3 page (or an AO3 search for it), never the text.
   async function shareWork(w) {
     const url = isAo3(w) ? ao3Link(w) : w.sourceUrl;
-    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}${isAo3(w) ? ', on AO3' : ''}`;
+    const text = `${w.title}${w.author ? ` by ${w.author}` : ''}${isAo3(w) && !inWork() ? ', on AO3' : ''}`;
     try {
       if (navigator.share) { await navigator.share({ title: w.title, text, url }); return; }
     } catch (err) { if (err.name === 'AbortError') return; }
-    try { await navigator.clipboard.writeText(url); setStatus(`AO3 link for “${w.title}” copied.`); }
-    catch { prompt('Copy the AO3 link:', url); }
+    try { await navigator.clipboard.writeText(url); setStatus(`${inWork() ? 'Link' : 'AO3 link'} for “${w.title}” copied.`); }
+    catch { prompt(inWork() ? 'Copy the link:' : 'Copy the AO3 link:', url); }
   }
 
   function openSheet(w) {
@@ -331,7 +331,7 @@
       Lists.save(); renderLibrary(); setStatus(`Made “${name}” with “${w.title}” in it.`);
     });
     if (isAo3(w) || w.sourceUrl) add('Share', () => shareWork(w));
-    if (isAo3(w)) add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
+    if (isAo3(w) && !inWork()) add(w.sourceUrl ? 'Open on AO3' : 'Find on AO3', () => window.open(ao3Link(w), '_blank', 'noopener'));
     else if (w.sourceUrl) add('Open the original page', () => window.open(w.sourceUrl, '_blank', 'noopener'));
     add('Remove from library', async () => {
       if (!confirm(`Remove “${w.title}” from your library? Your notes on it go too.`)) return;
@@ -355,7 +355,10 @@
     const b = document.createElement('b');
     b.textContent = w.title;
     const meta = document.createElement('span');
-    meta.textContent = [String(i + 1).padStart(2, '0'), w.author, 'Not in your library · add it from AO3'].filter(Boolean).join(' · ');
+    meta.textContent = [String(i + 1).padStart(2, '0'), w.author, 'Not in your library'].filter(Boolean).join(' · ');
+    const fromAo3 = document.createElement('span');
+    fromAo3.className = 'not-work'; fromAo3.textContent = ' · add it from AO3';
+    meta.append(fromAo3);
     a.append(b, meta);
     const rm = document.createElement('button');
     rm.className = 'delete';
@@ -424,10 +427,12 @@
     }));
     const empty = !items.length;
     els.emptyLibrary.hidden = !empty;
-    els.emptyLibrary.textContent = libView === 'notes' ? 'No notes yet.'
+    const emptyText = libView === 'notes' ? 'No notes yet.'
       : libView === 'queue' ? 'The queue is empty. Use ⋯ on a story to add it.'
       : libView.startsWith('pl:') ? 'This playlist is empty. Use ⋯ on a story to add it.'
-      : 'No stories yet. Open a file from AO3 above.';
+      : null;
+    if (emptyText) els.emptyLibrary.textContent = emptyText;
+    else els.emptyLibrary.innerHTML = 'No stories yet. Open a file<span class="not-work"> from AO3</span> above.';
     els.libraryCount.textContent = works.length ? `${works.length} ${works.length === 1 ? 'story' : 'stories'}` : '';
   }
 
@@ -588,7 +593,7 @@
         <li><button class="secondary-btn" id="bmCopy">Copy the Listen code</button></li>
         <li>Open any web page → <b>Share</b> → <b>Add Bookmark</b>. Name the bookmark <b>Listen</b> and save it to the folder <b>Favorites</b>.</li>
         <li>Go to <b>Bookmarks</b> → <b>Favorites</b> and <b>Edit</b> the <b>Listen</b> bookmark. Replace the address with the code copied above. Tap <b>Done</b>.</li>
-        <li>Open AO3 in your browser → tap <b>Entire Work</b> → tap <b>⋯</b> → click <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>.</li>
+        <li><span class="not-work">Open AO3 in your browser → tap <b>Entire Work</b> → </span><span class="only-work">Open the page in your browser → </span>tap <b>⋯</b> → click <b>Bookmarks</b> → <b>Listen</b>. It opens Fic Me Up, and you can listen away. On a phone, choose one of the two options: <b>Open in browser</b>, or <b>Copy for the Home Screen app</b>.</li>
       </ol>`;
     body.querySelector('#bmLink').href = code;
     body.querySelector('#bmLink').onclick = e => { e.preventDefault(); alert('Drag this onto your bookmarks bar. Clicking it here does nothing.'); };
@@ -683,10 +688,12 @@
       els.ao3Link.hidden = false;
       els.ao3Link.href = ao3Link(work);
       els.ao3Link.textContent = work.sourceUrl ? 'AO3 ↗' : 'Find on AO3 ↗';
+      els.ao3Link.classList.add('not-work');
     } else {
       els.ao3Link.hidden = !work.sourceUrl;
       els.ao3Link.href = work.sourceUrl || '#';
       els.ao3Link.textContent = 'Source ↗';
+      els.ao3Link.classList.remove('not-work');
     }
     els.backBtn.hidden = false;
     els.libraryView.hidden = true;
@@ -743,6 +750,7 @@
   }
 
   // AO3 works get AO3 links; anything else links to its original page, if it has one.
+  const inWork = () => document.documentElement.dataset.room === 'work';   // Work room: no AO3 mentions
   const isAo3 = w => /archiveofourown\.org/.test(w.sourceUrl || '') || !!w.info?.length;
   const ao3Link = w => w.sourceUrl
     || `https://archiveofourown.org/works/search?work_search%5Bquery%5D=${encodeURIComponent(`"${w.title}" ${w.author || ''}`.trim())}`;
@@ -810,12 +818,13 @@
     const onAo3 = !!work.sourceUrl;
     f.innerHTML = `
       <p class="mono">End of work</p>
-      <p>The writer sees kudos and comments on AO3, and nothing from this app.</p>
+      <p class="not-work">The writer sees kudos and comments on AO3, and nothing from this app.</p>
       <div class="cta">
         <a class="primary-btn" target="_blank" rel="noopener"></a>
         <a class="secondary-btn kofi" target="_blank" rel="noopener" href="https://ko-fi.com/thisandthatspace">Support Fic Me Up</a>
       </div>`;
     const a = f.querySelector('.primary-btn');
+    a.classList.add('not-work');
     a.href = ao3Link(work);
     a.textContent = onAo3 ? 'Leave kudos on AO3' : 'Find it on AO3';
     return f;
