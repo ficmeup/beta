@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ficmeup.github.io/sitemap.xml
